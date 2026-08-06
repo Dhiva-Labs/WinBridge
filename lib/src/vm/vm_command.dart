@@ -2,6 +2,7 @@ import 'package:winbridge/src/cli/command.dart';
 import 'package:winbridge/winbridge.dart';
 
 import 'remote_command.dart';
+import 'usb.dart';
 import 'vm_config.dart';
 import 'vm_transport.dart';
 
@@ -10,11 +11,12 @@ const _acceptNewHelp = 'Trust a VM host key seen for the first time. Never '
     'directly, can do that.';
 
 /// `winbridge vm` — connectivity and setup checks for the build VM. Has no
-/// action of its own; `status` and `doctor` are its only subcommands.
+/// action of its own; `status`, `doctor` and `usb` are its subcommands.
 class VmCommand extends WinBridgeCommand {
   VmCommand() {
     addSubcommand(VmStatusCommand());
     addSubcommand(VmDoctorCommand());
+    addSubcommand(VmUsbCommand());
   }
 
   @override
@@ -168,6 +170,130 @@ class VmDoctorCommand extends WinBridgeCommand {
   void _report(Output output, bool ok, String label, String detail) {
     final padded = label.padRight(9);
     output.info(ok ? '  ok       $padded$detail' : '  MISSING  $padded$detail');
+  }
+}
+
+/// `winbridge vm usb` — enumerate host USB devices and print VM passthrough
+/// configuration for one of them. Has no action of its own; both `list` and
+/// `passthrough` only ever read the host or print text — nothing here writes
+/// to a compose file or a libvirt domain on the user's behalf.
+class VmUsbCommand extends WinBridgeCommand {
+  VmUsbCommand() {
+    addSubcommand(VmUsbListCommand());
+    addSubcommand(VmUsbPassthroughCommand());
+  }
+
+  @override
+  String get name => 'usb';
+
+  @override
+  String get description => 'List host USB devices and configure VM passthrough.';
+}
+
+/// `winbridge vm usb list` — what `lsusb` sees, trimmed to devices that are
+/// actual passthrough candidates by default.
+class VmUsbListCommand extends WinBridgeCommand {
+  VmUsbListCommand() {
+    argParser.addFlag(
+      'all',
+      negatable: false,
+      help: 'Include root hubs and hubs, hidden by default.',
+    );
+  }
+
+  @override
+  String get name => 'list';
+
+  @override
+  String get description => 'List USB devices on this machine.';
+
+  @override
+  Future<int> run() async {
+    final output = context.output;
+    final lsusb = context.tools.requirePath(
+      'lsusb',
+      reason: 'lists USB devices attached to this machine',
+    );
+    final result = await context.processes.run(lsusb, const []);
+    if (!result.ok) {
+      throw ProcessFailure(
+        result.commandLine,
+        result.exitCode,
+        output: result.diagnostics,
+        what: 'lsusb',
+      );
+    }
+
+    final showAll = argResults!.flag('all');
+    final devices = [
+      for (final device in parseLsusb(result.stdout))
+        if (showAll || !device.isHubLike) device,
+    ];
+
+    if (devices.isEmpty) {
+      output.info(showAll
+          ? 'no USB devices found.'
+          : 'no non-hub USB devices found (use --all to include hubs).');
+      return 0;
+    }
+
+    output.info('VENDOR:PRODUCT  BUS  DEV  NAME');
+    for (final device in devices) {
+      output.info(
+        '${device.id.padRight(14)}  ${device.bus}  ${device.device}  '
+        '${device.name}',
+      );
+    }
+    return 0;
+  }
+}
+
+/// `winbridge vm usb passthrough <vendor:product>` — print, never apply, the
+/// dockur/windows compose fragment and the libvirt equivalent for handing one
+/// USB device to the VM.
+class VmUsbPassthroughCommand extends WinBridgeCommand {
+  @override
+  String get name => 'passthrough';
+
+  @override
+  String get description =>
+      'Print VM configuration to pass a USB device through.';
+
+  @override
+  String get invocation => 'winbridge vm usb passthrough <vendor:product>';
+
+  @override
+  Future<int> run() async {
+    final positional = argResults!.rest;
+    if (positional.length != 1) {
+      throw UsageFailure(
+        'expected exactly one argument: vendor:product',
+        details: 'example: winbridge vm usb passthrough 1462:7c95\n'
+            'run `winbridge vm usb list` to find one',
+      );
+    }
+
+    final id = UsbId.parse(positional.single);
+    final instructions = usbPassthroughInstructions(id);
+    final output = context.output;
+
+    output.info('For dockur/windows:');
+    output.blank();
+    output.info(instructions.composeSnippet);
+    output.blank();
+    output.info('For libvirt (virt-install / virsh), save this as a file:');
+    output.blank();
+    output.info(instructions.libvirtXml);
+    output.blank();
+    output.info('Then attach it live, without editing the domain XML:');
+    output.blank();
+    output.info('  ${instructions.virshCommand}');
+    output.blank();
+    output.info(
+      'Then install the vendor driver inside the VM, as on any Windows '
+      'machine.',
+    );
+    return 0;
   }
 }
 

@@ -9,6 +9,8 @@
     It installs everything `winbridge vm doctor` and `winbridge build` expect
     to find on the VM: Git, the Flutter SDK, Visual Studio Build Tools with
     the C++ desktop workload, rsync, and a key-authenticated OpenSSH server.
+    -WithPrinting additionally installs SumatraPDF for the print bridge (see
+    docs/devices.md); nothing else here reaches for a peripheral.
 
     Safe to re-run: every step checks whether it already did its job before
     doing it again.
@@ -23,8 +25,23 @@
 
     then paste the output as this parameter.
 
+.PARAMETER WithPrinting
+    Also installs SumatraPDF, for the print bridge in scripts/printing/ (see
+    docs/devices.md). Off by default: most printers do not need this at all
+    — check driverless IPP first — so this only downloads and installs
+    anything when you explicitly ask for it.
+
+.PARAMETER SumatraSha256
+    Optional SHA-256 of the SumatraPDF release zip, verified after download.
+    SumatraPDF publishes no checksum of its own, so there is nothing to pin by
+    default; supply one here (Get-FileHash on a copy you have verified) to make
+    every later run check what it downloaded.
+
 .EXAMPLE
     .\setup-windows.ps1 -PublicKey "ssh-ed25519 AAAA... you@host"
+
+.EXAMPLE
+    .\setup-windows.ps1 -PublicKey "ssh-ed25519 AAAA... you@host" -WithPrinting
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -32,7 +49,11 @@ param(
 
     [string]$FlutterRoot = 'C:\tools\flutter',
 
-    [string]$FlutterChannel = 'stable'
+    [string]$FlutterChannel = 'stable',
+
+    [switch]$WithPrinting,
+
+    [string]$SumatraSha256
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,6 +139,71 @@ if (Test-Command rsync) {
 }
 
 # ---------------------------------------------------------------------------
+# SumatraPDF — only with -WithPrinting. This is what
+# scripts/printing/winbridge-print.sh and print-vm-side.ps1 print through;
+# see docs/devices.md for the full print bridge walkthrough and why
+# driverless IPP is worth ruling out first.
+# ---------------------------------------------------------------------------
+if ($WithPrinting) {
+    Write-Step 'SumatraPDF (silent printing)'
+    $sumatraDir = 'C:\tools\sumatra'
+    $sumatraExe = Join-Path $sumatraDir 'SumatraPDF.exe'
+    if (Test-Path $sumatraExe) {
+        Write-Host 'already installed'
+    } else {
+        $sumatraVersion = '3.6.1'
+        $sumatraZipUrl = "https://www.sumatrapdfreader.org/dl/rel/$sumatraVersion/SumatraPDF-$sumatraVersion-64.zip"
+        $sumatraZip = Join-Path $env:TEMP 'winbridge-sumatra.zip'
+        $sumatraExtractDir = Join-Path $env:TEMP 'winbridge-sumatra-extract'
+
+        # Windows PowerShell 5.1 can still default to TLS 1.0 here depending on
+        # the host's .NET configuration, which fails against modern servers.
+        [System.Net.ServicePointManager]::SecurityProtocol =
+            [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-WebRequest -Uri $sumatraZipUrl -OutFile $sumatraZip
+
+        # SumatraPDF does not publish a checksum alongside its release zips, so
+        # there is no vendor hash to pin by default and inventing one would only
+        # break the install. The download is version-pinned and comes from the
+        # project's own domain over TLS, which leaves the vendor and their CDN
+        # trusted — pass -SumatraSha256 to close that gap: compute it once with
+        # Get-FileHash on a copy you have checked, and every later run of this
+        # script verifies against it.
+        if ($SumatraSha256) {
+            $actual = (Get-FileHash -Path $sumatraZip -Algorithm SHA256).Hash
+            if ($actual -ne $SumatraSha256.Replace('-', '').ToUpperInvariant()) {
+                Remove-Item $sumatraZip -Force
+                throw "SumatraPDF checksum mismatch: expected $SumatraSha256, got $actual"
+            }
+            Write-Host 'checksum verified'
+        } else {
+            Write-Warning 'SumatraPDF downloaded without checksum verification; see -SumatraSha256'
+        }
+
+        if (Test-Path $sumatraExtractDir) {
+            Remove-Item $sumatraExtractDir -Recurse -Force
+        }
+        Expand-Archive -Path $sumatraZip -DestinationPath $sumatraExtractDir -Force
+
+        # The zip's internal exe name has carried the version number in it
+        # across releases, so find it by extension instead of hardcoding one.
+        $extractedExe = Get-ChildItem -Path $sumatraExtractDir -Filter '*.exe' -Recurse |
+            Select-Object -First 1
+        if (-not $extractedExe) {
+            throw "SumatraPDF-$sumatraVersion-64.zip did not contain an .exe"
+        }
+        New-Item -ItemType Directory -Path $sumatraDir -Force | Out-Null
+        Copy-Item -Path $extractedExe.FullName -Destination $sumatraExe -Force
+
+        Remove-Item $sumatraZip -Force
+        Remove-Item $sumatraExtractDir -Recurse -Force
+    }
+    Write-Host "SumatraPDF at $sumatraExe"
+    Write-Host 'Install the printer''s own Windows driver normally (Settings > Printers)'
+    Write-Host 'first — SumatraPDF only prints through it, it is not a driver itself.'
+}
+
+# ---------------------------------------------------------------------------
 # OpenSSH Server, key-only auth for $PublicKey.
 # ---------------------------------------------------------------------------
 Write-Step 'OpenSSH Server'
@@ -196,6 +282,9 @@ Restart-Service sshd
 Write-Step 'Done'
 Write-Host 'flutter --version:'
 & "$flutterBin\flutter.bat" --version
+if ($WithPrinting) {
+    Write-Host "SumatraPDF: $sumatraExe"
+}
 Write-Host ''
 Write-Host 'Next: from the Linux host, run `winbridge vm doctor`.'
 Write-Host 'If this is the VM''s first connection, add --accept-new once.'

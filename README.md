@@ -39,6 +39,9 @@ dart compile exe bin/winbridge.dart -o winbridge
   available on this machine.
 - `winbridge vm status` / `winbridge vm doctor` — connectivity and setup
   checks for the Flutter build VM. See `docs/vm-setup.md`.
+- `winbridge vm usb list` / `winbridge vm usb passthrough <vendor:product>` —
+  see hardware attached to this host and print the VM configuration to hand
+  one device to it. See `docs/devices.md`.
 
 Run with `--verbose` for every resolved tool path and command line.
 
@@ -61,6 +64,16 @@ mishandled; driving real build systems is future work.
 Every produced artifact is checked for a valid Windows PE32+ header before
 the build is reported as a success — see `docs/DESIGN.md`.
 
+## Windows-only devices
+
+Printers, USB gadgets and GPUs that need Windows-only software — a vendor's
+maintenance utility, a GDI-only print driver, a companion app — route through
+the same build VM: `winbridge vm usb passthrough` hands a device to it, and
+`scripts/printing/` bridges print jobs to a Windows driver over SSH. Most
+hardware has a native Linux path that needs none of this; see
+`docs/devices.md` for the decision path and worked examples before reaching
+for the VM.
+
 ## Documentation
 
 - `PLAN.md` — milestones and the principles the project holds itself to.
@@ -70,6 +83,9 @@ the build is reported as a success — see `docs/DESIGN.md`.
 - `docs/vm-setup.md` — bringing up the Flutter build VM end to end: KVM
   prerequisites, provisioning scripts, `~/.config/winbridge/vm.json`, and
   troubleshooting.
+- `docs/devices.md` — routing printers, USB devices and GPUs through the
+  build VM for the Windows-only pieces they need, and the native Linux path
+  to check first.
 
 ## Testing
 

@@ -181,6 +181,14 @@ incremental caching does not carry over between runs unless you keep reusing
 the same VM and remote workspace, which the fixed `<remoteWorkspace>/project`
 layout is designed to let you do.
 
+## Beyond builds: devices
+
+This same VM is also where printers, USB devices and GPUs that need
+Windows-only software get routed — `winbridge vm usb`, the print bridge in
+`scripts/printing/`, and `setup-windows.ps1 -WithPrinting`. See
+`docs/devices.md`; it also covers what to check natively first, which for
+most hardware is all you actually need.
+
 ## Troubleshooting
 
 **"Host key verification failed" / "REMOTE HOST IDENTIFICATION HAS

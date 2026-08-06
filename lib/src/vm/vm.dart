@@ -13,6 +13,7 @@ library;
 
 export 'flutter_vm_toolchain.dart';
 export 'remote_command.dart';
+export 'usb.dart';
 export 'vm_command.dart';
 export 'vm_config.dart';
 export 'vm_transport.dart';
