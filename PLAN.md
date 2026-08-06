@@ -1,9 +1,11 @@
 # WinBridge — project plan
 
-**Mission: anything you can do on Windows, you can do from Linux.** Build for
-it, run its apps, drive its hardware. Every milestone below is a piece of that
-promise, and no milestone is allowed to compromise it for implementation
-convenience.
+**Mission: anything you can do on Windows, you can do from Linux — for
+everyone.** Build for it, run its apps, drive its hardware. This is a
+community project, not a tool for one machine: nothing may assume a particular
+GPU vendor, printer brand, or system layout. Detect what the user actually
+has, and have an honest documented answer for every configuration — including
+the configurations where the honest answer is a trade-off.
 
 WinBridge is a two-way bridge between Windows and Ubuntu:
 
@@ -131,11 +133,15 @@ runtime download checksummed.
 **Gates:** recipes are declarative data, never executable code; RDP
 credentials stored with 0600 permissions outside the repo.
 
-### M6 — distribution
+### M6 — distribution and community
 
 - Flatpak first (Wine under strict Snap confinement is not viable), then PPA.
 - GPU/Vulkan preflight checks; opt-in anonymous success reports feeding
   per-app compatibility scores.
+- Community hardware knowledge: the hardware-report issue template feeds a
+  published compatibility list (which devices work natively, which need the
+  VM, which are poor fits), so nobody has to rediscover what another user
+  already learned.
 
 ## Testing policy
 
