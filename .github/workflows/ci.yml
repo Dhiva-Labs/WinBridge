@@ -6,16 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+# This workflow only reads the repository. `pull_request` (never
+# `pull_request_target`) means a fork's code runs without access to secrets;
+# pinning the token to read-only keeps it that way even if a step is added
+# later that would otherwise inherit write scope.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       ZIG_VERSION: "0.16.0"
+      ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
 
       - name: Install dependencies
         run: dart pub get
@@ -29,7 +37,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64-x86-64
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: stable
 
@@ -37,6 +45,7 @@ jobs:
         run: |
           curl -fsSL -o zig.tar.xz \
             "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum --check
           mkdir -p "$HOME/.local/zig"
           tar -xJf zig.tar.xz -C "$HOME/.local/zig" --strip-components=1
           echo "$HOME/.local/zig" >> "$GITHUB_PATH"
@@ -47,7 +56,7 @@ jobs:
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: "8.0.x"
 
