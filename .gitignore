@@ -1,0 +1,17 @@
+# Dart
+.dart_tool/
+build/
+*.exe
+*.snapshot
+
+# Fixture build outputs
+fixtures/**/bin/
+fixtures/**/obj/
+fixtures/**/target/
+fixtures/**/zig-out/
+fixtures/**/zig-cache/
+fixtures/**/.zig-cache/
+
+# Local state
+.winbridge/
+*.log
