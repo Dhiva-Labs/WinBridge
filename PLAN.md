@@ -1,5 +1,10 @@
 # WinBridge — project plan
 
+**Mission: anything you can do on Windows, you can do from Linux.** Build for
+it, run its apps, drive its hardware. Every milestone below is a piece of that
+promise, and no milestone is allowed to compromise it for implementation
+convenience.
+
 WinBridge is a two-way bridge between Windows and Ubuntu:
 
 1. **Build for Windows from Linux** — a `winbridge` CLI that turns a Linux machine
@@ -15,6 +20,13 @@ KVM Windows VM.
 
 ## Principles
 
+- **Right tool for each layer — this is not a single-language codebase.** The
+  CLI front-end is Dart, but components choose their own implementation:
+  shell where it glues, PowerShell on the VM side, and compiled languages
+  (Go, Rust, C) for daemons or low-level pieces when a milestone calls for
+  them. The discipline that keeps this sane: components talk through
+  processes, files, and JSON — never in-process language bindings; every
+  component ships with its own tests; CI covers all of them.
 - **Zero sudo where possible.** Toolchains bootstrap into the user's home
   directory; nothing writes outside the project and `~/.cache/winbridge`.
 - **No shell interpolation, ever.** Every external process is spawned with an
@@ -64,6 +76,30 @@ documented and verified against a real VM before the milestone closes.
 **Security gate:** strict SSH host-key checking by default; key-based auth
 only; artifact extraction refuses absolute paths and `..` traversal; VM
 treated as semi-trusted (its outputs are data, never executed on the host).
+
+### M2.5 — device bridge (current)
+
+Windows kernel drivers can never load into the Linux kernel, but the VM can
+host them and WinBridge can route devices and jobs to it.
+
+- `winbridge vm usb list`: enumerate host USB devices; `winbridge vm usb
+  passthrough <vendor:product>`: emit the exact dockur/windows compose and
+  libvirt configuration to hand that device to the VM, where its Windows
+  driver installs normally.
+- Print bridge for Windows-only (GDI) printers: a CUPS-fed path that ships the
+  rendered PDF to the VM over the existing SSH transport and prints it there
+  through the vendor driver. Driverless IPP is documented as the first resort —
+  most modern printers need no driver at all on Linux.
+- GPU documentation: why a Windows GPU driver cannot drive a Linux desktop,
+  how to install the native driver instead, and VFIO passthrough for giving a
+  GPU to the VM.
+
+**Test gate:** lsusb parsing and configuration emission unit-tested against
+captured fixtures; print scripts lint-reviewed; walkthroughs verified against
+a real VM before the milestone closes.
+**Security gate:** device ids validated (strict hex `vvvv:pppp`) before they
+reach any emitted configuration; print path reuses the validated SSH
+transport; no new remote input reaches a shell unvalidated.
 
 ### M3 — MSVC ABI on Linux
 
