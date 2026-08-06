@@ -214,6 +214,32 @@ void main() {
       );
     });
 
+    // flutterPath is spliced into the command cmd.exe runs on the VM, which
+    // makes it the highest-risk field in the file: it *is* the command.
+    for (final bad in [
+      r'C:/f.bat & calc',
+      r'C:/f.bat&calc',
+      r'C:/f.bat|calc',
+      r'C:/f.bat^&calc',
+      r'C:/f.bat" & calc & "',
+      r'C:/%PATH%/f.bat',
+      'C:/tools flutter/f.bat',
+      'C:/f.bat\ncalc',
+      r'C:/f.bat>out',
+      r'C:/f.bat$(id)',
+      'C:/f.bat`id`',
+    ]) {
+      test('rejects a flutterPath of ${jsonEncode(bad)}', () {
+        final path = writeConfig(directory, validFields(flutterPath: bad));
+        expect(
+          () => VmConfig.load(environment: envFor(path)),
+          throwsA(isA<VmConfigError>().having(
+              (e) => e.details ?? '', 'details', contains('flutterPath'))),
+          reason: '${jsonEncode(bad)} reached a VmConfig',
+        );
+      });
+    }
+
     test('rejects an identityFile containing whitespace', () {
       final path = writeConfig(
         directory,

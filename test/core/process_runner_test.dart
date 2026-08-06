@@ -113,14 +113,15 @@ void main() {
     });
 
     test('rejects malformed variable names', () async {
-      expect(
-        () => runner.run(_echo, const [], environment: {'A=B': 'c'}),
-        throwsArgumentError,
-      );
-      expect(
-        () => runner.run(_echo, const [], environment: {'': 'c'}),
-        throwsArgumentError,
-      );
+      // A NUL would truncate the KEY=VALUE string execve builds; whitespace
+      // makes a variable no shell or tool can address.
+      for (final key in ['A=B', '', 'A B', 'A\tB', 'A\u0000B']) {
+        expect(
+          () => runner.run(_echo, const [], environment: {key: 'c'}),
+          throwsArgumentError,
+          reason: 'accepted "$key" as a variable name',
+        );
+      }
     });
 
     test('values never reach the log', () async {

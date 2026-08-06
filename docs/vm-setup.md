@@ -31,12 +31,19 @@ From the repository root:
 
 ```sh
 cd scripts/vm
+export WINBRIDGE_VM_PASSWORD="$(openssl rand -base64 24)"
 docker compose up -d
 ```
 
-Read `scripts/vm/docker-compose.yml` before you do — change the `PASSWORD`
-environment variable, and adjust `RAM_SIZE`/`CPU_CORES`/`DISK_SIZE` to what
-your machine can spare. Then:
+The compose file has no default password on purpose — `docker compose up`
+fails until `WINBRIDGE_VM_PASSWORD` is set. Read
+`scripts/vm/docker-compose.yml` before you bring it up and adjust
+`RAM_SIZE`/`CPU_CORES`/`DISK_SIZE` to what your machine can spare.
+
+Every published port binds to `127.0.0.1`. The guest is a Windows desktop with
+RDP and sshd running; it is reachable from this machine only, which is all
+`winbridge` needs. If you genuinely need it from another host, tunnel over SSH
+rather than widening the bind address. Then:
 
 1. Open `http://localhost:8006` in a browser. This is the guest's console —
    Windows installs itself automatically on first boot; it takes a while.
@@ -80,7 +87,12 @@ The script installs, idempotently:
   `PATH`
 - rsync (via Chocolatey — there is no official winget package)
 - OpenSSH Server, started and set to start automatically, with your public
-  key authorized
+  key authorized and password authentication switched off
+
+Switching password auth off is the step that makes the account password from
+`docker-compose.yml` stop mattering for remote access. The script validates
+the rewritten `sshd_config` with `sshd -t` and restores the original if it
+does not parse, so a bad edit cannot leave you locked out of the VM.
 
 It finishes by printing `flutter --version` so you can confirm the SDK is
 actually usable before moving on.
@@ -210,8 +222,11 @@ common cases.
   only relaxation WinBridge offers is `--accept-new` on `vm doctor`/`vm
   status`, which trusts an *unseen* host once and still refuses a *changed*
   one.
-- Auth is key-only (`BatchMode=yes`); WinBridge never prompts for or accepts
-  a password.
+- Auth is key-only from both ends: WinBridge connects with `BatchMode=yes` and
+  never prompts for or accepts a password, and `setup-windows.ps1` sets
+  `PasswordAuthentication no` on the VM's sshd so nothing else can either.
+- The compose file publishes every port on `127.0.0.1` and refuses to start
+  without an explicitly set `WINBRIDGE_VM_PASSWORD`.
 - The VM is treated as semi-trusted: everything it sends back is data that
   gets validated (path containment, no symlinks) before WinBridge touches it
   on the host, never something the host executes.

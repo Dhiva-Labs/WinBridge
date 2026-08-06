@@ -52,6 +52,12 @@ Run with `--verbose` for every resolved tool path and command line.
 | C/C++ (`CMakeLists.txt`, `Makefile`, sources) | `c` | `zig cc`/`zig c++`, or MinGW-w64 |
 | Flutter (`pubspec.yaml` with a flutter dependency) | `vm` | `flutter build windows` on a VM over SSH |
 
+C/C++ is the one partial row. WinBridge *detects* a project from
+`CMakeLists.txt` or a `Makefile`, but the M1 adapter compiles top-level and
+`src/` sources directly — it does not drive CMake or Make. A project that only
+builds through one of those is reported as unsupported rather than silently
+mishandled; driving real build systems is future work.
+
 Every produced artifact is checked for a valid Windows PE32+ header before
 the build is reported as a success — see `docs/DESIGN.md`.
 

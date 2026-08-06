@@ -56,12 +56,16 @@ class RustToolchain implements Toolchain {
     if (targetCheck != null) return targetCheck;
 
     final targetDir = p.join(request.cacheDirectory, 'cargo-target');
+    // Cargo names the output directory after the profile, so a debug build
+    // lands in `debug/` rather than `release/`.
+    final profileDir = request.mode.isRelease ? 'release' : 'debug';
 
+    final startedAt = DateTime.now();
     final result = await request.runner.run(
       cargo,
       [
         'build',
-        '--release',
+        if (request.mode.isRelease) '--release',
         '--target', _rustTarget,
         ...request.extraArguments,
       ],
@@ -76,12 +80,11 @@ class RustToolchain implements Toolchain {
       );
     }
 
-    final located = _locateExe(request, targetDir);
+    final located = _locateExe(request, targetDir, profileDir, startedAt);
     if (located == null) {
       return BuildResult.failure(
         'cargo reported success but produced no .exe',
-        details: 'looked in '
-            '${p.join(targetDir, _rustTarget, 'release')}',
+        details: 'looked in ${p.join(targetDir, _rustTarget, profileDir)}',
       );
     }
 
@@ -117,28 +120,47 @@ class RustToolchain implements Toolchain {
     );
   }
 
-  /// The release directory holds the final binaries directly; intermediate
+  /// The profile directory holds the final binaries directly; intermediate
   /// build products with hashed names live one level down in `deps/`, so a
-  /// non-recursive listing is enough. Prefers a file named after the
-  /// project, since Cargo accepts hyphens or underscores in a package name
-  /// but keeps them as typed in the binary file name.
-  File? _locateExe(BuildRequest request, String targetDir) {
-    final releaseDir = Directory(p.join(targetDir, _rustTarget, 'release'));
-    if (!releaseDir.existsSync()) return null;
+  /// non-recursive listing is enough. Prefers a file named after the project,
+  /// since Cargo accepts hyphens or underscores in a package name but keeps
+  /// them as typed in the binary file name.
+  ///
+  /// [startedAt] guards against a stale binary: the target directory persists
+  /// across builds, so a rename or a removed `[[bin]]` target can leave an old
+  /// `.exe` behind that no longer corresponds to anything. Only files this
+  /// build actually touched are eligible, and the remainder is sorted so the
+  /// choice never depends on filesystem enumeration order.
+  File? _locateExe(
+    BuildRequest request,
+    String targetDir,
+    String profileDir,
+    DateTime startedAt,
+  ) {
+    final outDir = Directory(p.join(targetDir, _rustTarget, profileDir));
+    if (!outDir.existsSync()) return null;
 
-    final candidates = releaseDir
+    // A second of slack: cargo may hard-link an unchanged binary rather than
+    // rewrite it, and filesystem timestamp granularity is not always finer.
+    final floor = startedAt.subtract(const Duration(seconds: 1));
+    final candidates = outDir
         .listSync()
         .whereType<File>()
         .where((f) => p.extension(f.path) == '.exe')
-        .toList();
+        .where((f) => !f.statSync().modified.isBefore(floor))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
     if (candidates.isEmpty) return null;
 
     final name = request.project.name;
-    final preferred = {'$name.exe', '${name.replaceAll('_', '-')}.exe',
-        '${name.replaceAll('-', '_')}.exe'};
-    return candidates.firstWhere(
-      (f) => preferred.contains(p.basename(f.path)),
-      orElse: () => candidates.first,
-    );
+    final preferred = {
+      '$name.exe',
+      '${name.replaceAll('_', '-')}.exe',
+      '${name.replaceAll('-', '_')}.exe',
+    };
+    for (final candidate in candidates) {
+      if (preferred.contains(p.basename(candidate.path))) return candidate;
+    }
+    return candidates.first;
   }
 }

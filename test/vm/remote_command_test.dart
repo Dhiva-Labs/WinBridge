@@ -89,4 +89,45 @@ void main() {
     expect(all, isNot(contains('pubspec')));
     expect(all, isNot(contains('..')));
   });
+
+  // The far end of this one ssh invocation really is a shell, so the whole
+  // safety argument rests on every token being a literal or a charset-checked
+  // config field. Assert that directly rather than trusting the reading.
+  test('no emitted token carries a cmd.exe metacharacter', () {
+    const deliberateOperators = {'&&'};
+    final metacharacter = RegExp(r'[&|<>^%\r\n]');
+
+    for (final config in [
+      _config,
+      const VmConfig(
+        host: 'winvm.local',
+        user: 'builder',
+        remoteWorkspace: 'C:/winbridge/',
+        flutterPath: 'C:/tools/flutter/bin/flutter.bat',
+      ),
+    ]) {
+      final remote = RemoteCommands(config);
+      for (final command in [
+        remote.echoProbe(),
+        remote.flutterVersion(),
+        remote.pubGet(),
+        remote.ensureWindowsPlatform(),
+        remote.buildWindowsRelease(),
+        remote.whereRsync(),
+      ]) {
+        for (final token in command) {
+          if (deliberateOperators.contains(token)) continue;
+          expect(
+            metacharacter.hasMatch(token),
+            isFalse,
+            reason: 'token "$token" could be reinterpreted by cmd.exe',
+          );
+          // A quoted token must not be able to close its own quote early.
+          if (token.startsWith('"')) {
+            expect(token.substring(1, token.length - 1), isNot(contains('"')));
+          }
+        }
+      }
+    }
+  });
 }

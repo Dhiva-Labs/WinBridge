@@ -150,6 +150,47 @@ icacls $authorizedKeysPath /inheritance:r | Out-Null
 icacls $authorizedKeysPath /grant 'Administrators:F' | Out-Null
 icacls $authorizedKeysPath /grant 'SYSTEM:F' | Out-Null
 
+# Key-only authentication. Without this, sshd still accepts the account
+# password — and the VM account's password is set from docker-compose.yml,
+# which makes a guessable password the weakest link in a box that exists to
+# run builds. WinBridge itself always connects with BatchMode=yes and never
+# sends a password, so nothing here loses functionality.
+Write-Step 'Disabling password authentication on sshd'
+$sshdConfig = 'C:\ProgramData\ssh\sshd_config'
+if (Test-Path $sshdConfig) {
+    $config = Get-Content $sshdConfig
+    $settings = [ordered]@{
+        'PubkeyAuthentication'   = 'yes'
+        'PasswordAuthentication' = 'no'
+        'PermitEmptyPasswords'   = 'no'
+    }
+    foreach ($key in $settings.Keys) {
+        # sshd takes the FIRST value it finds for a keyword, so appending is
+        # only correct once every earlier occurrence is commented out.
+        $config = $config -replace "^\s*#?\s*$key\s+.*$", "# (winbridge) was: `$0"
+        $config += "$key $($settings[$key])"
+    }
+
+    # Never leave a VM with an sshd that will not start: validate the rewritten
+    # file and put the original back if it does not parse.
+    $backup = "$sshdConfig.winbridge.bak"
+    Copy-Item $sshdConfig $backup -Force
+    Set-Content -Path $sshdConfig -Value $config
+
+    $sshdExe = Join-Path $env:SystemRoot 'System32\OpenSSH\sshd.exe'
+    if (Test-Path $sshdExe) {
+        & $sshdExe -t -f $sshdConfig
+        if ($LASTEXITCODE -ne 0) {
+            Copy-Item $backup $sshdConfig -Force
+            throw "rewritten sshd_config failed validation; restored $backup"
+        }
+    } else {
+        Write-Warning "sshd.exe not found; could not validate $sshdConfig"
+    }
+} else {
+    Write-Warning "no sshd_config at $sshdConfig; check password auth by hand"
+}
+
 Restart-Service sshd
 
 Write-Step 'Done'

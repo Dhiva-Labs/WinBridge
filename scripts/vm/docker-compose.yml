@@ -21,7 +21,11 @@ services:
     environment:
       VERSION: "11"
       USERNAME: "winbridge"
-      PASSWORD: "changeme" # change this — see docs/vm-setup.md
+      # No default on purpose: `docker compose up` fails until you set this.
+      # A build VM reachable with a known password is a Windows box anyone on
+      # your network can log into.
+      #   export WINBRIDGE_VM_PASSWORD="$(openssl rand -base64 24)"
+      PASSWORD: ${WINBRIDGE_VM_PASSWORD:?set WINBRIDGE_VM_PASSWORD - see docs/vm-setup.md}
       RAM_SIZE: "8G"
       CPU_CORES: "4"
       DISK_SIZE: "64G"
@@ -30,17 +34,22 @@ services:
       - /dev/net/tun
     cap_add:
       - NET_ADMIN
+    # Every port is bound to the loopback interface. A "0.0.0.0" publish here
+    # would put a Windows desktop, its RDP service and its sshd on every
+    # network this host can see; winbridge only ever connects from this
+    # machine. Reach the VM from elsewhere over an SSH tunnel, not by widening
+    # these.
     ports:
       # Web viewer, for the interactive Windows install and for troubleshooting
       # when SSH is not (yet) reachable.
-      - "8006:8006"
+      - "127.0.0.1:8006:8006"
       # RDP, useful for the same reason once Windows is installed.
-      - "3389:3389/tcp"
-      - "3389:3389/udp"
+      - "127.0.0.1:3389:3389/tcp"
+      - "127.0.0.1:3389:3389/udp"
       # sshd, once setup-windows.ps1 has enabled it inside the guest. This is
       # the port winbridge itself talks to — see remoteWorkspace/host/port in
       # ~/.config/winbridge/vm.json.
-      - "2222:22"
+      - "127.0.0.1:2222:22"
     volumes:
       - ./storage:/storage
     restart: unless-stopped

@@ -43,19 +43,37 @@ import 'package:winbridge/winbridge.dart';
 `lib/src/cli/` is deliberately not exported. The CLI drives adapters; adapters
 never reach back into the CLI.
 
+**The one exception**, because a module that contributes a *subcommand* has to
+extend its base class: a feature module may import
+`package:winbridge/src/cli/command.dart` for `WinBridgeCommand`, and nothing
+else under `lib/src/cli/`. `lib/src/vm/vm_command.dart` does this. In
+particular a module must not import `runner.dart` or `toolchain_setup.dart` —
+registration flows one way, from the composition root outward.
+
 ### Composition root
 
 `lib/src/cli/toolchain_setup.dart` is the single place adapters are registered,
-and the only place the CLI may import `lib/src/toolchains/` or `lib/src/vm/`:
+and the only place the CLI may import `lib/src/toolchains/`, `lib/src/pe/` or
+`lib/src/vm/`:
 
 ```dart
-List<Toolchain> registeredToolchains() => const [];
+List<Toolchain> registeredToolchains() => [...];
+List<ArtifactVerifier> defaultVerifiers() => const [PeVerifier()];
 ```
 
 Landing an adapter is one line in that list. Order matters — the first
 toolchain whose `canHandle` returns true builds the project — so put the
 preferred path first. Per the plan's "cheap path first": native cross-compilers
-before Wine, Wine before the VM.
+before Wine, Wine before the VM. `FlutterVmToolchain` is registered last for
+that reason.
+
+`defaultVerifiers()` is the matching hook for artifact checks. `WinBridgeRunner`
+takes both as nullable constructor parameters and falls back to these, so tests
+can substitute an empty registry or skip PE verification without reaching into
+global state.
+
+A subcommand contributed by a feature module is wired the same way, by
+`addCommand` in `WinBridgeRunner`'s constructor.
 
 ## The Toolchain contract
 
@@ -276,6 +294,25 @@ Windows cross-compile path, and claiming one would be worse than saying nothing.
 with the winner first, so `detect` can explain an ambiguous directory rather
 than just asserting an answer.
 
+### `Project.name` is a safe file-name component
+
+Adapters build output names out of it (`'${project.name}.exe'`), but the
+declared name is read from the project's own `pubspec.yaml`, `Cargo.toml` or
+`go.mod` — files a hostile repository controls. A manifest declaring
+`name: ../../../../etc/cron.d/x` would otherwise steer a compiler's `-o`
+outside the output directory, and the compiler writes there *before* any
+verification runs.
+
+So `Project` guarantees its `name` satisfies `isSafeNameComponent`: non-empty,
+not `.` or `..`, no path separators, no control characters, none of the
+characters Windows rejects in a file name, and no leading `-` (a name is
+routinely spliced into argv, where a leading dash reads as a flag). A declared
+name that fails any of those is replaced with the directory name.
+
+Adapters may use `project.name` in a path without sanitising it again. They
+should still not use it as a *remote* shell token — see the VM section, where
+the checkout directory is a fixed literal for exactly this reason.
+
 ## Errors and exit codes
 
 | Code | Meaning |
@@ -297,6 +334,30 @@ are reported identically everywhere.
 Write messages that name the thing that failed and, where useful, what was
 tried. `ToolNotFound` lists every directory it searched, which turns "command
 not found" into something a user can act on.
+
+An adapter may catch a `WinBridgeException` raised by its own steps and return
+it as a `BuildResult.failure` instead — the VM path does this so a config or
+transport error arrives labelled with the step that hit it. That is safe
+because the hierarchy is only ever thrown deliberately: a genuine bug is an
+`Error` or a plain `Exception` and still escapes as a stack trace. Do not widen
+such a catch to `Exception` or `Object`, which would swallow bugs.
+
+### Diagnostic commands
+
+`doctor` and `vm doctor` are reports, but they are also CI gates, so both
+follow one rule: **exit 1 when something required is missing, 0 when the path
+being checked can actually run.**
+
+- `winbridge doctor` exits 1 if any registered toolchain has an unresolved
+  non-optional `ToolRequirement`. An `optional: true` requirement is reported
+  as `absent` and never changes the exit code.
+- `winbridge vm doctor` exits 1 if any of its checks fail: local `ssh`/`rsync`,
+  config validity, connectivity, remote Flutter, remote rsync.
+
+The consequence worth knowing: on a machine set up only for Go, `winbridge
+doctor` still exits 1, because the Rust and .NET paths genuinely cannot run.
+The report names which tools are missing; a zero exit means every registered
+path works, not merely the one you happen to care about.
 
 ## Security rules
 

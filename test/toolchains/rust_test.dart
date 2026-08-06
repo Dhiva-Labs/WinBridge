@@ -45,6 +45,7 @@ void main() {
     required ProcessRunner runner,
     ToolResolver? tools,
     List<String> extraArguments = const [],
+    BuildMode mode = BuildMode.release,
   }) =>
       BuildRequest(
         project: project(),
@@ -54,13 +55,14 @@ void main() {
         tools: tools ?? resolver(),
         output: silentOutput(),
         extraArguments: extraArguments,
+        mode: mode,
       );
 
   /// Cargo actually writing the .exe is what a real build does; the fake
   /// runner never spawns cargo, so tests that exercise the "locate the
   /// output" step create it themselves at the path cargo would have used.
-  String plantExe(String name) {
-    final dir = p.join(cache, 'cargo-target', 'x86_64-pc-windows-gnu', 'release');
+  String plantExe(String name, {String profile = 'release'}) {
+    final dir = p.join(cache, 'cargo-target', 'x86_64-pc-windows-gnu', profile);
     return writeFile(p.join(dir, name), 'stub-pe-bytes');
   }
 
@@ -222,6 +224,54 @@ void main() {
         expect(result.succeeded, isTrue);
         expect(runner.calls, hasLength(2));
       });
+    });
+
+    group('build mode', () {
+      test('--debug drops --release and reads the debug profile dir', () async {
+        writeExecutable(pathDir, 'cargo');
+        writeExecutable(pathDir, 'x86_64-w64-mingw32-gcc');
+        final planted = plantExe('hello_rust.exe', profile: 'debug');
+        final runner = RecordingProcessRunner();
+
+        final result = await rust.build(
+          request(runner: runner, mode: BuildMode.debug),
+        );
+
+        expect(runner.calls.single.arguments, isNot(contains('--release')));
+        expect(result.succeeded, isTrue,
+            reason: 'failed with: ${result.failureMessage}');
+        expect(File(planted).existsSync(), isTrue);
+        expect(p.basename(result.artifacts.single), 'hello_rust.exe');
+      });
+
+      test('a release build does not pick up a debug binary', () async {
+        writeExecutable(pathDir, 'cargo');
+        writeExecutable(pathDir, 'x86_64-w64-mingw32-gcc');
+        plantExe('hello_rust.exe', profile: 'debug');
+        final runner = RecordingProcessRunner();
+
+        final result = await rust.build(request(runner: runner));
+
+        expect(result.succeeded, isFalse);
+        expect(result.failureMessage, contains('no .exe'));
+      });
+    });
+
+    test('a stale .exe from an earlier build is not reported', () async {
+      writeExecutable(pathDir, 'cargo');
+      writeExecutable(pathDir, 'x86_64-w64-mingw32-gcc');
+      // The target directory outlives a build: a renamed or removed [[bin]]
+      // leaves an .exe behind that this build did not produce.
+      final stale = plantExe('old_name.exe');
+      File(stale).setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 2)),
+      );
+      final runner = RecordingProcessRunner();
+
+      final result = await rust.build(request(runner: runner));
+
+      expect(result.succeeded, isFalse);
+      expect(result.failureMessage, contains('no .exe'));
     });
   });
 }
