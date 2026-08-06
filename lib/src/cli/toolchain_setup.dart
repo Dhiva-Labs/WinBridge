@@ -1,5 +1,11 @@
+import '../core/artifact.dart';
 import '../core/registry.dart';
 import '../core/toolchain.dart';
+import '../pe/pe_verifier.dart';
+import '../toolchains/c.dart';
+import '../toolchains/dotnet.dart';
+import '../toolchains/go.dart';
+import '../toolchains/rust.dart';
 
 /// The composition root for toolchain adapters.
 ///
@@ -7,7 +13,17 @@ import '../core/toolchain.dart';
 /// `lib/src/vm/`. Landing an adapter means adding its constructor to this list
 /// and nothing else; order matters, because the first toolchain that claims a
 /// project builds it.
-List<Toolchain> registeredToolchains() => const [];
+List<Toolchain> registeredToolchains() => const [
+      GoToolchain(),
+      RustToolchain(),
+      DotnetToolchain(),
+      CToolchain(),
+    ];
 
 ToolchainRegistry defaultRegistry() =>
     ToolchainRegistry(registeredToolchains());
+
+/// Artifact checks composed by the CLI and run over every build's output —
+/// a toolchain never vouches for its own binary. See docs/DESIGN.md's
+/// "extension seams" section.
+List<ArtifactVerifier> defaultVerifiers() => const [PeVerifier()];

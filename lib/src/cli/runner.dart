@@ -19,12 +19,12 @@ class WinBridgeRunner extends CommandRunner<int> {
   WinBridgeRunner({
     ToolchainRegistry? registry,
     WinBridgeConfig? config,
-    List<ArtifactVerifier> verifiers = const [],
+    List<ArtifactVerifier>? verifiers,
     StringSink? out,
     StringSink? err,
   })  : _registry = registry ?? defaultRegistry(),
         _config = config,
-        _verifiers = verifiers,
+        _verifiers = verifiers ?? defaultVerifiers(),
         _out = out ?? io.stdout,
         _err = err ?? io.stderr,
         super('winbridge', 'Build Windows binaries from Linux.') {
