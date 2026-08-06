@@ -1,0 +1,20 @@
+name: hello_flutter
+description: >
+  Minimal Flutter-shaped fixture used by WinBridge's detection and VM
+  toolchain routing tests. Not built by the test suite.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

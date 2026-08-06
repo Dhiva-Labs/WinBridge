@@ -6,6 +6,7 @@ import '../toolchains/c.dart';
 import '../toolchains/dotnet.dart';
 import '../toolchains/go.dart';
 import '../toolchains/rust.dart';
+import '../vm/vm.dart';
 
 /// The composition root for toolchain adapters.
 ///
@@ -13,11 +14,12 @@ import '../toolchains/rust.dart';
 /// `lib/src/vm/`. Landing an adapter means adding its constructor to this list
 /// and nothing else; order matters, because the first toolchain that claims a
 /// project builds it.
-List<Toolchain> registeredToolchains() => const [
-      GoToolchain(),
-      RustToolchain(),
-      DotnetToolchain(),
-      CToolchain(),
+List<Toolchain> registeredToolchains() => [
+      const GoToolchain(),
+      const RustToolchain(),
+      const DotnetToolchain(),
+      const CToolchain(),
+      FlutterVmToolchain(),
     ];
 
 ToolchainRegistry defaultRegistry() =>

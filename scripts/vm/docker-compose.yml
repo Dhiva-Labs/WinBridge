@@ -1,0 +1,47 @@
+# Headless Windows build VM for WinBridge's M2 Flutter path, via dockur/windows
+# (https://github.com/dockur/windows), which boots a real Windows install
+# under KVM/QEMU inside the container. Full walkthrough, including the
+# one-time Windows-side setup, is in docs/vm-setup.md — start there.
+#
+# Requirements on the host: KVM (/dev/kvm must exist and be usable by the
+# user running docker — `ls -l /dev/kvm`, and typically membership in the
+# `kvm` group), and a docker/compose install. No sudo is needed beyond what
+# your docker setup already requires.
+#
+# Sizing: Visual Studio Build Tools plus the Flutter SDK is a heavy guest.
+# 8G of RAM and 4 CPU cores below is a comfortable minimum for a Windows 11
+# guest that also has to run flutter build windows; 64G of disk gives VS,
+# Flutter, and a few projects' worth of build/ output room to breathe. Adjust
+# to what the host can spare — the guest installer will simply run slower
+# with less.
+services:
+  windows:
+    image: dockurr/windows
+    container_name: winbridge-vm
+    environment:
+      VERSION: "11"
+      USERNAME: "winbridge"
+      PASSWORD: "changeme" # change this — see docs/vm-setup.md
+      RAM_SIZE: "8G"
+      CPU_CORES: "4"
+      DISK_SIZE: "64G"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      # Web viewer, for the interactive Windows install and for troubleshooting
+      # when SSH is not (yet) reachable.
+      - "8006:8006"
+      # RDP, useful for the same reason once Windows is installed.
+      - "3389:3389/tcp"
+      - "3389:3389/udp"
+      # sshd, once setup-windows.ps1 has enabled it inside the guest. This is
+      # the port winbridge itself talks to — see remoteWorkspace/host/port in
+      # ~/.config/winbridge/vm.json.
+      - "2222:22"
+    volumes:
+      - ./storage:/storage
+    restart: unless-stopped
+    stop_grace_period: 2m

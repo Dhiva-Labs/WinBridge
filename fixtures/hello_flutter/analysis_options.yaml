@@ -1,0 +1,9 @@
+# fixtures/hello_flutter is a data fixture, not a package `dart analyze`
+# should try to resolve — it declares a `flutter` dependency it never runs
+# `pub get` for (see the note in pubspec.yaml), so `package:flutter` imports
+# never resolve here on purpose. This file gives the fixture its own analysis
+# context root so the main winbridge package's `dart analyze` does not walk
+# into it and report that as an error.
+analyzer:
+  exclude:
+    - "**"

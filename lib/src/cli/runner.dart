@@ -8,6 +8,7 @@ import '../core/config.dart';
 import '../core/errors.dart';
 import '../core/registry.dart';
 import '../core/version.dart';
+import '../vm/vm.dart';
 import 'build_command.dart';
 import 'context.dart';
 import 'detect_command.dart';
@@ -44,6 +45,7 @@ class WinBridgeRunner extends CommandRunner<int> {
     addCommand(BuildCommand());
     addCommand(DetectCommand());
     addCommand(DoctorCommand());
+    addCommand(VmCommand());
   }
 
   final ToolchainRegistry _registry;
