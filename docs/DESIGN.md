@@ -320,6 +320,29 @@ the checkout directory is a fixed literal for exactly this reason.
 | 0 | success |
 | 1 | build or tool failure |
 | 2 | usage error |
+| 141 | the reader of our stdout went away (`... \| head`) |
+
+141 is `128 + SIGPIPE`, what a shell reports for a process it killed on a
+closed pipe, so `winbridge detect | head -1` behaves like any coreutils
+command. Dart disables `SIGPIPE` and surfaces `EPIPE` instead — and it does so
+*asynchronously*: `io.stdout` performs its writes inside a stream callback, so
+the error is delivered to the enclosing zone and no `try`/`catch` around
+`writeln` can see it. Two consequences, both of which matter if you touch the
+output plumbing:
+
+- `WinBridgeRunner.execute` runs the command inside a `runZonedGuarded` and
+  flushes stdout before returning, so a deferred pipe error becomes an exit
+  code rather than an unhandled exception arriving after `main` has finished.
+- The real `io.stdout`/`io.stderr` are resolved **lazily**, on first write, by
+  both `Output` and the runner. Touching `io.stdout` binds its internal
+  subscription — and therefore where its write errors are delivered — to
+  whatever zone is current at that moment. Resolving it in a constructor binds
+  it outside the guarded zone, and the guard then silently stops working.
+
+`Output` additionally retires a sink after its first broken-pipe error, so a
+half-closed pipeline (`winbridge build 2>err.log | head`) still gets its
+diagnostics on the stream that is still open. Any *other* write failure is a
+bug and still propagates.
 
 Everything user-facing extends `WinBridgeException` and carries a `message`, an
 optional `details` block, and its own exit code: `UsageFailure` (2),

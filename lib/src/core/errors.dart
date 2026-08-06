@@ -1,3 +1,8 @@
+/// Exit code for "whatever was reading our output went away", matching what a
+/// shell reports for a process it killed with `SIGPIPE` (128 + 13). This is
+/// what `winbridge ... | head -5` exits with, the same as coreutils.
+const brokenPipeExitCode = 141;
+
 /// Base class for failures that reach the user as a message rather than a
 /// crash. Anything thrown outside this hierarchy is a bug, and the CLI prints
 /// it with a stack trace so it looks like one.
