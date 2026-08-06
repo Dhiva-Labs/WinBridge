@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ZIG_VERSION: "0.16.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      # --- Cross-toolchains for the M1 native adapters + Rust's mingw linker.
+      - name: Install MinGW-w64 (C/C++ adapter, and Rust's windows-gnu linker)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install Zig
+        run: |
+          curl -fsSL -o zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          mkdir -p "$HOME/.local/zig"
+          tar -xJf zig.tar.xz -C "$HOME/.local/zig" --strip-components=1
+          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
+
+      - name: Install Rust with the windows-gnu target
+        run: |
+          rustup set profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-gnu
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # No Windows VM in CI — the vm toolchain's own suite runs entirely
+      # against fakes (see test/vm/), so it needs nothing installed here.
+      - name: Test
+        run: dart test
