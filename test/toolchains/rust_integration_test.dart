@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
