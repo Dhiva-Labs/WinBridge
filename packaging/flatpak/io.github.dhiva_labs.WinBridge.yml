@@ -89,6 +89,6 @@ modules:
         # runtime-version, periodically) to match the newest release is a
         # release-automation follow-up, not a hand job — see
         # docs/distribution.md.
-        url: https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge-0.3.0-linux-x64.tar.gz
-        sha256: aea35aae2cf4e6b3383417d099678d3f3e1a7d21d650a9bfd1a3cfb72cd80518
+        url: https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge-0.4.0-linux-x64.tar.gz
+        sha256: 68b9f5772ef780f44e7f366978a3f8a0eb974118a86624cc21ca9b61b54fce29
         strip-components: 1
