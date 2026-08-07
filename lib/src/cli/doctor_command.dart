@@ -1,3 +1,6 @@
+import '../bootstrap/components.dart';
+import '../bootstrap/installer.dart';
+import '../core/errors.dart';
 import '../core/toolchain.dart';
 import '../core/version.dart';
 import '../run/dxvk.dart';
@@ -9,6 +12,17 @@ import 'command.dart';
 /// Exits 1 when a required tool is missing, so CI can gate on it. Optional
 /// requirements are reported but never fail the command.
 class DoctorCommand extends WinBridgeCommand {
+  DoctorCommand() {
+    argParser.addOption(
+      'install',
+      valueHelp: 'component',
+      allowed: [for (final c in installableComponents) c.id],
+      help: 'Download and install a component, then exit.\n'
+          'Nothing is ever installed without asking; see the\n'
+          '"Installable components" section of plain `doctor`.',
+    );
+  }
+
   @override
   String get name => 'doctor';
 
@@ -23,6 +37,10 @@ class DoctorCommand extends WinBridgeCommand {
     final output = context.output;
     final tools = context.tools;
 
+    if (argResults!.option('install') case final id?) {
+      return _install(id);
+    }
+
     output.info('winbridge $packageVersion');
     output.blank();
 
@@ -36,6 +54,7 @@ class DoctorCommand extends WinBridgeCommand {
     output.blank();
 
     _reportRunRuntime();
+    _reportInstallable();
 
     output.info('Toolchains');
     if (context.registry.isEmpty) {
@@ -110,6 +129,60 @@ class DoctorCommand extends WinBridgeCommand {
     } else {
       output.info('  absent   vulkan        no Vulkan loader found; '
           '`run --dxvk` needs one (optional)');
+    }
+    output.blank();
+  }
+
+  /// `doctor --install <id>`.
+  Future<int> _install(String id) async {
+    final component = findComponent(id);
+    if (component == null) {
+      throw UsageFailure(
+        'unknown component: $id',
+        details: 'available: '
+            '${installableComponents.map((c) => c.id).join(', ')}',
+      );
+    }
+
+    final installer = ComponentInstaller(
+      config: context.config,
+      tools: context.tools,
+      runner: context.processes,
+      output: context.output,
+    );
+    if (installer.isComplete(component)) {
+      context.output.info('${component.id} is already installed.');
+      return 0;
+    }
+    await installer.install(component);
+    return 0;
+  }
+
+  /// What `--install` can fetch, and how big each one is, so the choice is
+  /// informed before anything starts downloading.
+  void _reportInstallable() {
+    final output = context.output;
+    final installer = ComponentInstaller(
+      config: context.config,
+      tools: context.tools,
+      runner: context.processes,
+      output: output,
+    );
+
+    output.info('Installable components  (winbridge doctor --install <name>)');
+    for (final component in installableComponents) {
+      // "system" matters: a tool already on the search path works fine, it is
+      // simply not one WinBridge downloaded and can vouch for.
+      final state = installer.isComplete(component)
+          ? 'managed'
+          : installer.isInstalled(component)
+              ? 'partial'
+              : component.probeBinary != null &&
+                      context.tools.resolve(component.probeBinary!) != null
+                  ? 'system '
+                  : 'absent ';
+      output.info('  $state  ${component.id.padRight(6)} '
+          '${component.downloadSize.padRight(14)} ${component.summary}');
     }
     output.blank();
   }

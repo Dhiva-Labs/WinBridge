@@ -17,6 +17,60 @@ const _machineX64 = 0x8664;
 const _magicPe32 = 0x010b;
 const _magicPe32Plus = 0x020b;
 
+/// Checks [bytes] are *a* Windows PE image, whatever its architecture, and
+/// returns its COFF machine type.
+///
+/// This is the right check for something that only has to be a valid Windows
+/// executable rather than one WinBridge compiled. An NSIS installer is
+/// deliberately 32-bit so it runs on any Windows, and demanding x86-64 of it
+/// would reject a perfectly good installer.
+int validatePeImage(Uint8List bytes, {required String label}) {
+  Never fail(String message, {String? found}) {
+    throw ArtifactFailure(
+      '$label is not a Windows executable: $message',
+      details: found == null ? null : 'found: $found',
+    );
+  }
+
+  if (_looksLikeElf(bytes)) {
+    fail('this is an ELF binary, not a PE image',
+        found: 'ELF ${_elfClass(bytes)}');
+  }
+  if (bytes.length < 2 || bytes[0] != 0x4d || bytes[1] != 0x5a) {
+    fail("missing the 'MZ' DOS header magic",
+        found: bytes.isEmpty ? 'an empty file' : _hex(bytes, 0, 2));
+  }
+  if (bytes.length < 0x3c + 4) {
+    fail('truncated before e_lfanew (offset 0x3C)',
+        found: '${bytes.length} byte(s)');
+  }
+  final lfanew = _u32(bytes, 0x3c);
+  if (lfanew < 0 || lfanew + 4 > bytes.length) {
+    fail('e_lfanew points outside the file',
+        found: 'offset 0x${lfanew.toRadixString(16)} in a '
+            '${bytes.length}-byte file');
+  }
+  if (bytes[lfanew] != 0x50 ||
+      bytes[lfanew + 1] != 0x45 ||
+      bytes[lfanew + 2] != 0x00 ||
+      bytes[lfanew + 3] != 0x00) {
+    fail(
+      "missing the 'PE\\0\\0' signature at e_lfanew "
+      '(0x${lfanew.toRadixString(16)})',
+      found: _hex(bytes, lfanew, 4),
+    );
+  }
+  final coff = lfanew + 4;
+  if (coff + 20 > bytes.length) {
+    fail('truncated COFF header', found: '${bytes.length} byte(s)');
+  }
+  return _u16(bytes, coff);
+}
+
+/// A human name for a COFF machine type, for messages.
+String describeMachine(int machine) =>
+    _machineNames[machine] ?? '0x${machine.toRadixString(16).padLeft(4, '0')}';
+
 /// Checks [bytes] against the PE32+ header a WinBridge build is expected to
 /// produce: a DOS stub starting `MZ`, an `e_lfanew` pointer at 0x3C into a
 /// `PE\0\0` signature, a COFF header naming the x86-64 machine type, and an

@@ -6,6 +6,8 @@ import '../core/artifact.dart';
 import '../core/build.dart';
 import '../core/config.dart';
 import '../core/errors.dart';
+import '../core/toolchain.dart';
+import '../detect/project.dart';
 import 'command.dart';
 
 class BuildCommand extends WinBridgeCommand {
@@ -24,6 +26,12 @@ class BuildCommand extends WinBridgeCommand {
         allowed: [for (final t in BuildTarget.all) t.slug],
         defaultsTo: BuildTarget.windowsX64.slug,
         help: 'Windows architecture to build for.',
+      )
+      ..addOption(
+        'toolchain',
+        valueHelp: 'id',
+        help: 'Force a specific toolchain instead of the cheapest one that\n'
+            'claims the project (see `winbridge doctor`).',
       )
       ..addFlag(
         'debug',
@@ -58,7 +66,10 @@ class BuildCommand extends WinBridgeCommand {
     final mode = results.flag('debug') ? BuildMode.debug : BuildMode.release;
 
     final project = detectProject(directory);
-    final toolchain = context.registry.forProject(project);
+    final requested = results.option('toolchain');
+    final toolchain = requested == null
+        ? context.registry.forProject(project)
+        : _namedToolchain(requested, project);
     if (toolchain == null) {
       throw BuildFailure(
         'no toolchain available for ${project.type.displayName}',
@@ -133,6 +144,31 @@ class BuildCommand extends WinBridgeCommand {
       );
     }
     return absolute;
+  }
+
+  /// Resolves `--toolchain <id>` to a registered adapter.
+  ///
+  /// A named toolchain that cannot build this project type is a usage error
+  /// rather than a silent fallback: someone who asked for `msvc` on a Go
+  /// project wants to be told, not quietly handed the Go adapter.
+  Toolchain _namedToolchain(String id, Project project) {
+    final toolchain = context.registry.byId(id);
+    if (toolchain == null) {
+      throw UsageFailure(
+        'no toolchain called "$id"',
+        details: 'registered: '
+            '${context.registry.toolchains.map((t) => t.id).join(', ')}',
+      );
+    }
+    if (!toolchain.canHandle(project)) {
+      throw UsageFailure(
+        'the $id toolchain does not build '
+        '${project.type.displayName} projects',
+        details: 'this one would: '
+            '${context.registry.forProject(project)?.id ?? 'none registered'}',
+      );
+    }
+    return toolchain;
   }
 
   /// Paths under the working directory read better relative.

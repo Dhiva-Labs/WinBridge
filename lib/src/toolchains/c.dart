@@ -97,25 +97,35 @@ class CToolchain implements Toolchain {
     );
   }
 
-  /// Top-level and `src/` files ending in a recognized C/C++ extension,
-  /// sorted so argv order — and therefore build reproducibility — does not
-  /// depend on filesystem enumeration order.
-  List<String> _discoverSources(String root) {
-    final sources = <String>[
-      ..._sourcesIn(root),
-      ..._sourcesIn(p.join(root, 'src')),
-    ];
-    sources.sort();
-    return sources;
-  }
+  List<String> _discoverSources(String root) => discoverCSources(root);
+}
 
-  List<String> _sourcesIn(String directory) {
-    final dir = Directory(directory);
-    if (!dir.existsSync()) return const [];
-    return [
-      for (final entry in dir.listSync())
-        if (entry is File && _sourceExtensions.contains(p.extension(entry.path)))
-          entry.path,
-    ];
-  }
+/// Top-level and `src/` files ending in a recognized C/C++ extension, sorted so
+/// argv order — and therefore build reproducibility — does not depend on
+/// filesystem enumeration order.
+///
+/// Shared with the MSVC adapter: two C toolchains disagreeing about what counts
+/// as a source file is the kind of drift nobody notices until one of them
+/// quietly leaves a file out.
+List<String> discoverCSources(String root) {
+  final sources = <String>[
+    ..._sourcesIn(root),
+    ..._sourcesIn(p.join(root, 'src')),
+  ];
+  sources.sort();
+  return sources;
+}
+
+/// Whether [sources] contains anything that has to be compiled as C++.
+bool hasCxxSources(Iterable<String> sources) =>
+    sources.any((path) => _cxxExtensions.contains(p.extension(path)));
+
+List<String> _sourcesIn(String directory) {
+  final dir = Directory(directory);
+  if (!dir.existsSync()) return const [];
+  return [
+    for (final entry in dir.listSync())
+      if (entry is File && _sourceExtensions.contains(p.extension(entry.path)))
+        entry.path,
+  ];
 }

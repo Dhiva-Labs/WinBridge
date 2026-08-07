@@ -5,6 +5,7 @@ import '../pe/pe_verifier.dart';
 import '../toolchains/c.dart';
 import '../toolchains/dotnet.dart';
 import '../toolchains/go.dart';
+import '../toolchains/msvc.dart';
 import '../toolchains/rust.dart';
 import '../vm/vm.dart';
 
@@ -19,6 +20,9 @@ List<Toolchain> registeredToolchains() => [
       const RustToolchain(),
       const DotnetToolchain(),
       const CToolchain(),
+      // After CToolchain on purpose: the cheap MinGW path stays the default
+      // for C/C++, and `--toolchain msvc` is what reaches this one.
+      const MsvcToolchain(),
       FlutterVmToolchain(),
     ];
 

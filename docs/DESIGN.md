@@ -33,6 +33,8 @@ success: it returns paths, and the CLI decides.
 | `lib/src/pe/` | PE32+ header verification | adapters |
 | `lib/src/vm/` | Windows VM build path (M2) | VM |
 | `lib/src/run/` | managed Wine runtime, app prefixes, launching (M4) | core |
+| `lib/src/bootstrap/` | components behind `doctor --install` (M3) | core |
+| `lib/src/package/` | installer generation and Authenticode signing (M3) | core |
 
 `lib/winbridge.dart` exports everything an adapter needs. Import that, not
 individual `src/` files:
@@ -478,6 +480,27 @@ const pinnedDxvk = PinnedAsset(
 A single-file asset (winetricks) carries `executable: true`, and the execute
 bit is set **after** the checksum passes — nothing unverified is ever made
 runnable.
+
+**Nothing large downloads implicitly.** `lib/src/bootstrap/` holds the
+`InstallableComponent` list behind `doctor --install`: each wraps a
+`PinnedAsset`, states its download size before anything starts, and — for the
+Microsoft SDK — states the licence it carries. A *build* never triggers one. The
+MSVC adapter's missing-SDK failure names the install command and spawns no
+process at all, which is asserted by a test: a build that quietly starts a
+multi-gigabyte download is the thing that rule exists to prevent.
+
+`AssetRoot` decides where a component lands. `ToolResolver` only ever searches
+`toolchains/*/bin`, so a compiler has to install there under its bare name to be
+found, while a runtime keeps its version in the directory name and is reached by
+an explicit path. `exposeBinaries` covers upstreams that ship their binary at
+the archive root rather than in `bin/` — zig does.
+
+**Two levels of PE checking.** `validatePeHeader` demands PE32+ x86-64 and is
+what `build` applies to its own artifacts. `validatePeImage` asks only "is this
+a Windows executable" and returns the machine type. The distinction is load
+bearing: NSIS emits 32-bit installers on purpose so they run on any Windows, and
+`winbridge run` must launch 32-bit software too — refusing it would defeat the
+reason the pinned Wine is a wow64 build in the first place.
 
 **What the trust boundary does not cover.** `winbridge prefix tricks` runs
 winetricks, which downloads third-party redistributables of its own and

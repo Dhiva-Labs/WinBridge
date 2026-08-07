@@ -125,13 +125,20 @@ void main() {
       );
     });
 
-    test('rejects a 32-bit PE', () {
+    test('accepts a 32-bit PE, because plenty of Windows software is', () {
+      // Every NSIS installer is 32-bit on purpose, and running 32-bit software
+      // without host multilib is the whole reason the pinned Wine is a wow64
+      // build. Applying `build`'s x86-64 rule here would refuse to launch
+      // programs Wine handles perfectly well.
       final pe32 = p.join(appDir, 'old.exe');
-      File(pe32).writeAsBytesSync(buildPeHeader(optionalMagic: 0x010b));
-      expect(
-        () => WineLauncher.checkExecutable(pe32),
-        throwsA(isA<ArtifactFailure>()),
+      File(pe32).writeAsBytesSync(
+        buildPeHeader(machine: 0x014c, optionalMagic: 0x010b),
       );
+      expect(WineLauncher.checkExecutable(pe32), 0x014c);
+    });
+
+    test('reports the machine type of a 64-bit PE', () {
+      expect(WineLauncher.checkExecutable(exe), 0x8664);
     });
 
     test('rejects a missing file as a usage error', () {

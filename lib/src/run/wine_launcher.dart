@@ -44,12 +44,17 @@ class WineLauncher {
   final ProcessRunner runner;
   final Output output;
 
-  /// Reads the PE header before launching.
+  /// Reads the PE header before launching, and returns its machine type.
   ///
   /// Wine's own failure for a non-Windows binary is a wall of loader noise, so
-  /// this answers the actual question first — is this even a Windows program —
-  /// using the same header check `winbridge build` runs over its own output.
-  static void checkExecutable(String path) {
+  /// this answers the actual question first: is this even a Windows program.
+  ///
+  /// Deliberately *not* the x86-64 check `winbridge build` applies to its own
+  /// artifacts. Plenty of real Windows software is 32-bit — every NSIS
+  /// installer is, on purpose — and running those without 32-bit host
+  /// libraries is exactly why the pinned Wine is a wow64 build. Requiring
+  /// PE32+ here would refuse to launch software Wine handles perfectly well.
+  static int checkExecutable(String path) {
     final file = File(path);
     if (!file.existsSync()) {
       throw UsageFailure('no such file: $path');
@@ -70,7 +75,7 @@ class WineLauncher {
     } on FileSystemException catch (error) {
       throw UsageFailure('cannot read $path', details: error.osError?.message);
     }
-    validatePeHeader(head, label: p.basename(path));
+    return validatePeImage(head, label: p.basename(path));
   }
 
   /// The environment Wine is given. Separated out because it is exactly what

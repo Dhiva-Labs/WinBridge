@@ -8,13 +8,20 @@ import '../core/output.dart';
 import '../core/process_runner.dart';
 import '../core/tool_resolver.dart';
 
+/// Which managed directory an asset installs into.
+///
+/// The distinction matters to `ToolResolver`, which searches
+/// `toolchains/*/bin` and nothing else: a compiler has to land there to be
+/// found by name, while a runtime is looked up by an explicit path.
+enum AssetRoot { runtimes, toolchains }
+
 /// Something WinBridge downloads on the user's behalf, pinned to an exact
 /// upstream build by checksum.
 ///
-/// Every third-party component the `run` path manages — the Wine runtime,
-/// DXVK, winetricks — is one of these, so they all get the same treatment: the
-/// bytes are checked before they are unpacked or executed, and a copy that was
-/// never checked is never used.
+/// Everything WinBridge fetches — the Wine runtime, DXVK, winetricks, NSIS,
+/// xwin, bootstrapped compilers — is one of these, so they all get the same
+/// treatment: the bytes are checked before they are unpacked or executed, and
+/// a copy that was never checked is never used.
 class PinnedAsset {
   const PinnedAsset({
     required this.name,
@@ -24,10 +31,14 @@ class PinnedAsset {
     this.archiveTopLevel,
     this.fileName,
     this.executable = false,
+    this.root = AssetRoot.runtimes,
+    this.exposeBinaries = const [],
+    this.archiveFormat = ArchiveFormat.tar,
   });
 
-  /// Directory name under the cache root. Carries the version, so a new pin
-  /// installs beside the old one instead of overwriting something in use.
+  /// Directory name under the cache root. Carries the version for runtimes, so
+  /// a new pin installs beside the old one instead of overwriting something in
+  /// use; toolchains use the bare tool name so `ToolResolver` finds them.
   final String name;
 
   final String version;
@@ -36,8 +47,8 @@ class PinnedAsset {
   /// Lowercase hex, verified before the download is unpacked or run.
   final String sha256;
 
-  /// For a tar archive: the single directory it unpacks to. Null for a plain
-  /// file download.
+  /// For an archive: the single directory it unpacks to. Null for a plain file
+  /// download.
   final String? archiveTopLevel;
 
   /// For a plain file: what to call it on disk.
@@ -46,8 +57,24 @@ class PinnedAsset {
   /// Whether a plain file needs its execute bit set.
   final bool executable;
 
+  final AssetRoot root;
+
+  /// Executables to guarantee exist at `bin/<name>` after installing.
+  ///
+  /// Some upstreams ship their binary at the root of the archive rather than
+  /// in `bin/` — zig does — and `ToolResolver` only ever looks in `bin/`. Each
+  /// entry is a path relative to the payload; it is linked into `bin/` under
+  /// its own file name if it is not already there.
+  final List<String> exposeBinaries;
+
+  final ArchiveFormat archiveFormat;
+
   bool get isArchive => archiveTopLevel != null;
 }
+
+/// How an archive is unpacked. `tar` handles its own compression detection;
+/// zip needs a different tool entirely.
+enum ArchiveFormat { tar, zip }
 
 /// Downloads, verifies and caches [PinnedAsset]s under `~/.cache/winbridge/`.
 ///
@@ -75,9 +102,14 @@ class AssetCache {
 
   /// Where [asset] lives once installed, or null with no cache to work from.
   String? directoryFor(PinnedAsset asset) {
-    final root = config.managedRuntimeRoot;
+    final root = _rootFor(asset);
     return root == null ? null : p.join(root, asset.name);
   }
+
+  String? _rootFor(PinnedAsset asset) => switch (asset.root) {
+        AssetRoot.runtimes => config.managedRuntimeRoot,
+        AssetRoot.toolchains => config.managedToolchainRoot,
+      };
 
   /// The payload path inside an installed asset: the directory for an archive,
   /// the file itself for a plain download.
@@ -122,7 +154,7 @@ class AssetCache {
   /// directory beside the destination and is published with a single rename,
   /// which is only atomic within one filesystem, hence "beside".
   Future<void> install(PinnedAsset asset) async {
-    final root = config.managedRuntimeRoot;
+    final root = _rootFor(asset);
     final target = directoryFor(asset);
     if (root == null || target == null) {
       throw const BuildFailure('no cache directory to download into');
@@ -164,9 +196,7 @@ class AssetCache {
       if (asset.isArchive) {
         final unpackDir = Directory(p.join(scratch.path, 'unpacked'))
           ..createSync();
-        final tar = tools.requirePath('tar', reason: 'unpacks ${asset.name}');
-        final unpacked =
-            await runner.run(tar, ['-xf', download, '-C', unpackDir.path]);
+        final unpacked = await _unpack(asset, download, unpackDir.path);
         if (!unpacked.ok) {
           throw BuildFailure(
             'could not unpack ${asset.name}',
@@ -200,6 +230,10 @@ class AssetCache {
         }
       }
 
+      if (asset.exposeBinaries.isNotEmpty) {
+        _exposeBinaries(asset, staged.path);
+      }
+
       // Stamp before publishing, so the payload is never visible at its final
       // path without the proof that it was verified.
       File(p.join(staged.path, stampFileName))
@@ -211,6 +245,40 @@ class AssetCache {
       output.detail('installed $target');
     } finally {
       if (scratch.existsSync()) scratch.deleteSync(recursive: true);
+    }
+  }
+
+  Future<RunResult> _unpack(
+    PinnedAsset asset,
+    String archive,
+    String destination,
+  ) {
+    switch (asset.archiveFormat) {
+      case ArchiveFormat.tar:
+        final tar = tools.requirePath('tar', reason: 'unpacks ${asset.name}');
+        return runner.run(tar, ['-xf', archive, '-C', destination]);
+      case ArchiveFormat.zip:
+        final unzip =
+            tools.requirePath('unzip', reason: 'unpacks ${asset.name}');
+        return runner.run(unzip, ['-q', archive, '-d', destination]);
+    }
+  }
+
+  /// Makes sure every [PinnedAsset.exposeBinaries] entry is reachable at
+  /// `bin/<file>`, symlinking it there when upstream ships it elsewhere.
+  void _exposeBinaries(PinnedAsset asset, String payload) {
+    final binDirectory = Directory(p.join(payload, 'bin'));
+    for (final relative in asset.exposeBinaries) {
+      final source = p.join(payload, relative);
+      if (!File(source).existsSync()) continue;
+      final linkPath = p.join(binDirectory.path, p.basename(relative));
+      if (FileSystemEntity.typeSync(linkPath) !=
+          FileSystemEntityType.notFound) {
+        continue;
+      }
+      binDirectory.createSync(recursive: true);
+      // Relative, so the link keeps working after the atomic rename into place.
+      Link(linkPath).createSync(p.relative(source, from: binDirectory.path));
     }
   }
 
