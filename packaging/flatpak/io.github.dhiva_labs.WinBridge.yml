@@ -1,0 +1,94 @@
+app-id: io.github.dhiva_labs.WinBridge
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: winbridge
+
+# WinBridge is a CLI, not a GUI app — see metainfo/io.github.dhiva_labs
+# .WinBridge.metainfo.xml, which declares it as AppStream's
+# `console-application` type for exactly that reason. Every permission below
+# exists because of something a *command line argument* asks WinBridge to
+# do, not because of anything the sandbox would grant a typical desktop app
+# automatically.
+finish-args:
+  # `winbridge build` fetches Go/Rust/.NET module dependencies (`go get`,
+  # `cargo fetch`, `dotnet restore`), the managed Wine/DXVK/winetricks
+  # runtimes and bootstrapped toolchains all download over plain HTTPS on
+  # first use, and `winbridge vm status|doctor` opens an SSH connection to
+  # the build VM, which may be anywhere on the network, not just localhost.
+  - --share=network
+
+  # `winbridge build <dir>`, `winbridge run <exe>` and `winbridge desktop
+  # add <exe>` all take an arbitrary filesystem path as a plain CLI
+  # argument, which can point anywhere on the host — a project checked out
+  # under /mnt, a game installed under /opt, not only paths under $HOME.
+  # A GUI app can scope this down to a portal file-picker; a CLI flag has no
+  # equivalent, so this is the one permission here that meaningfully
+  # loosens the sandbox rather than just carving out WinBridge's own data
+  # directories (see the next entry, and the note below the list).
+  - --filesystem=host
+
+  # `winbridge desktop add` writes a `.desktop` launcher entry so an app
+  # shows up in the host's actual application menu. WinBridge's own state —
+  # `~/.cache/winbridge` (toolchains, the managed Wine runtime, DXVK) and
+  # `~/.local/share/winbridge` (app prefixes) — needs no extra permission at
+  # all: those are private data under the sandboxed $HOME every Flatpak app
+  # already gets. `~/.local/share/applications` is different — it must be
+  # the *real*, unsandboxed directory the host desktop environment actually
+  # scans, or the entry `winbridge desktop add` writes would be invisible
+  # outside the sandbox and the feature would silently do nothing useful.
+  # (Implied by --filesystem=host above; listed explicitly because it is
+  # the one path this app writes to for a reason other than the CLI
+  # argument --filesystem=host exists for, and should stay granted even if
+  # that broader permission is ever narrowed.)
+  - --filesystem=xdg-data/applications:create
+
+  # `winbridge run` launches Windows GUI apps through Wine, which needs a
+  # display to draw to like any other windowed program.
+  - --socket=wayland
+  - --socket=fallback-x11
+
+  # Windows apps routinely play audio through Wine's audio driver.
+  - --socket=pulseaudio
+
+  # `winbridge run --dxvk` renders Direct3D through Vulkan; DRI access is
+  # what lets that reach the GPU instead of falling back to software
+  # rendering.
+  - --device=dri
+
+modules:
+  - name: winbridge
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 winbridge /app/bin/winbridge
+      - install -Dm644 LICENSE /app/share/doc/winbridge/LICENSE
+      - install -Dm644 README.md /app/share/doc/winbridge/README.md
+      - install -Dm644 io.github.dhiva_labs.WinBridge.metainfo.xml
+          /app/share/metainfo/io.github.dhiva_labs.WinBridge.metainfo.xml
+    sources:
+      # A local source, not a download: flatpak-builder resolves this path
+      # relative to this manifest file and copies it into the sandboxed
+      # build directory (as its own basename) before build-commands runs —
+      # there is no other way for a build-command to reach a file that
+      # isn't part of the module's own sources, since the build happens
+      # inside an isolated directory with nothing else present.
+      - type: file
+        path: metainfo/io.github.dhiva_labs.WinBridge.metainfo.xml
+      - type: archive
+        # Pinned to the v0.3.0 GitHub release asset — the most recent one
+        # published as of this manifest. `strip-components: 1` drops the
+        # release tarball's own `winbridge-0.3.0-linux-x64/` wrapper
+        # directory, so this module's build directory holds `winbridge`,
+        # `LICENSE` and `README.md` directly, matching the build-commands
+        # above regardless of what a future release names that wrapper.
+        #
+        # scripts/release/build-ppa-source.sh's sibling, the release.yml
+        # workflow, is what release automation should update in lockstep
+        # with a version bump: on every tag push it builds and publishes
+        # exactly this asset, so bumping this manifest's url/sha256 (and
+        # runtime-version, periodically) to match the newest release is a
+        # release-automation follow-up, not a hand job — see
+        # docs/distribution.md.
+        url: https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge-0.3.0-linux-x64.tar.gz
+        sha256: aea35aae2cf4e6b3383417d099678d3f3e1a7d21d650a9bfd1a3cfb72cd80518
+        strip-components: 1

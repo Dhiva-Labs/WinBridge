@@ -1,0 +1,136 @@
+name: release
+
+# Tag-triggered only. Pushing `vX.Y.Z` is the one and only way this runs —
+# there is no manual dispatch and no branch trigger, so a release always
+# corresponds to an actual git tag someone deliberately pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Scoped to this one job, not the workflow: creating a GitHub release and
+    # uploading its assets is the only thing in this repo that ever needs
+    # write access to the repository. ci.yml stays read-only end to end;
+    # keeping the grant at job level here (rather than promoting the whole
+    # workflow to write) means a step added to a *different* job later, in
+    # either file, does not inherit it by accident.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+
+      # Fails fast, before spending any CI minutes on install/analyze/test,
+      # if whoever cut this tag forgot to bump pubspec.yaml (or the version
+      # in pubspec.yaml drifted from lib/src/core/version.dart's
+      # `packageVersion`, which `winbridge --version` reports — the compiled-
+      # binary check further down would otherwise be comparing against a
+      # tag that was already wrong).
+      - name: Tag must match pubspec.yaml's version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          pubspec_version="$(grep -m1 '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//')"
+          if [ "$version" != "$pubspec_version" ]; then
+            echo "::error::tag $tag (version $version) does not match the version in pubspec.yaml ($pubspec_version). Bump pubspec.yaml (and lib/src/core/version.dart) to $version, land that, and re-tag — a release must never ship a binary whose --version disagrees with the tag that built it." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      # A failing test suite must never reach a release — there is no step
+      # after this one that can undo a bad build once assets are uploaded.
+      - name: Test
+        run: dart test
+
+      - name: Compile
+        run: dart compile exe bin/winbridge.dart -o winbridge
+
+      - name: Verify the compiled binary reports the tagged version
+        run: |
+          reported="$(./winbridge --version | awk '{print $2}')"
+          if [ "$reported" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::compiled binary reports version '$reported', expected '${{ steps.version.outputs.version }}'" >&2
+            exit 1
+          fi
+
+      - name: Assemble the tarball
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          stage="winbridge-${VERSION}-linux-x64"
+          mkdir -p "$stage"
+          install -m 0755 winbridge "$stage/winbridge"
+          install -m 0644 LICENSE "$stage/LICENSE"
+          install -m 0644 README.md "$stage/README.md"
+          tar -czf "${stage}.tar.gz" "$stage"
+
+      # Mirrors the structure of the winbridge_0.3.0-1_amd64.deb already on
+      # the releases page: /usr/bin/winbridge, /usr/share/doc/winbridge/
+      # copyright, and a control file carrying the same Depends/Recommends
+      # as debian/control (the PPA package) — the two are built by different
+      # means (this is a hand-assembled `dpkg-deb`, not a `dh` build via
+      # debian/rules) but must describe the same package.
+      - name: Build the .deb
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pkg="winbridge_${VERSION}-1_amd64"
+          mkdir -p "$pkg/usr/bin" "$pkg/usr/share/doc/winbridge" "$pkg/DEBIAN"
+          install -m 0755 winbridge "$pkg/usr/bin/winbridge"
+          install -m 0644 debian/copyright "$pkg/usr/share/doc/winbridge/copyright"
+          gzip -9n -c debian/changelog > "$pkg/usr/share/doc/winbridge/changelog.gz"
+          cat > "$pkg/DEBIAN/control" <<EOF
+          Package: winbridge
+          Version: ${VERSION}-1
+          Section: devel
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Dhiva Labs <dhivakar1010@gmail.com>
+          Homepage: https://github.com/Dhiva-Labs/WinBridge
+          Depends: libc6
+          Recommends: openssh-client, rsync, curl, xz-utils
+          Description: build and run Windows apps from Linux, without leaving Linux
+           WinBridge cross-compiles Windows binaries from Go, Rust, .NET, C/C++ and
+           Flutter projects and checks every artifact for a real Windows PE32+ header
+           before calling a build a success. It also runs existing Windows programs
+           through a managed Wine runtime it downloads and verifies itself, with an
+           isolated prefix per app and optional DXVK for Direct3D-over-Vulkan
+           rendering. No system Wine, no root, nothing to configure by hand.
+          EOF
+          dpkg-deb --build --root-owner-group "$pkg"
+
+      - name: Checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sha256sum \
+            "winbridge-${VERSION}-linux-x64.tar.gz" \
+            "winbridge_${VERSION}-1_amd64.deb" \
+            > SHA256SUMS
+          cat SHA256SUMS
+
+      # `gh` ships preinstalled on GitHub-hosted runners, so this needs no
+      # extra action (and nothing extra to pin) beyond the token below.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "winbridge-${VERSION}-linux-x64.tar.gz" \
+            "winbridge_${VERSION}-1_amd64.deb" \
+            SHA256SUMS \
+            --title "WinBridge ${VERSION}" \
+            --generate-notes

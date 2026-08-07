@@ -19,22 +19,26 @@ From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases) —
 on Debian/Ubuntu:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge_0.3.0-1_amd64.deb
-sudo apt install ./winbridge_0.3.0-1_amd64.deb
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge_0.4.0-1_amd64.deb
+sudo apt install ./winbridge_0.4.0-1_amd64.deb
 winbridge doctor
 ```
 
 or on any Linux x86-64, no root needed:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge-0.3.0-linux-x64.tar.gz
-tar -xzf winbridge-0.3.0-linux-x64.tar.gz
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge-0.4.0-linux-x64.tar.gz
+tar -xzf winbridge-0.4.0-linux-x64.tar.gz
 install -Dm755 winbridge ~/.local/bin/winbridge
 winbridge doctor
 ```
 
 Verify the download against the release's `SHA256SUMS` asset with
 `sha256sum -c`.
+
+Every install channel — this tarball and `.deb`, the `dhiva-apps` PPA, and
+Flatpak — is covered in full, including how each one is built and its
+current status, in `docs/distribution.md`.
 
 ## Quick start from source
 
@@ -167,3 +171,20 @@ dart test
 Integration tests that need a real toolchain (Go, Zig, a live build VM, ...)
 skip gracefully when that toolchain is not present locally; CI runs the full
 matrix.
+
+## Reporting hardware and compatibility
+
+```sh
+winbridge report
+```
+
+Prints a filled-in copy of the hardware-report issue template — OS/kernel,
+CPU, GPU, Vulkan, WinBridge's own Wine runtime and prefix/DXVK state, and
+which toolchains are ready to build with — gathered strictly from this
+machine. Nothing it gathers is sent anywhere by the command itself; it
+prints the report and the URL to paste it into if you choose to share it.
+No hostname, no username, and no path under your home directory reaches the
+output — see `lib/src/report/` if you want to verify that yourself.
+
+See `COMPATIBILITY.md` for what this repository has actually verified so
+far and how a hardware report becomes a row in that table.

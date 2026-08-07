@@ -1,0 +1,68 @@
+#!/usr/bin/make -f
+
+# Launchpad's PPA build farm has no outbound network access and no Dart SDK,
+# so unlike a normal Debian package this one cannot compile from source on
+# the builder. `dart compile exe` produces a single self-contained ELF
+# binary (dynamically linked against nothing but libc — see `file` on its
+# output), so there is nothing to *build* here at all: instead,
+# scripts/release/build-ppa-source.sh compiles `winbridge` locally, with the
+# same `dart analyze --fatal-infos` and `dart test` gates CI runs, and
+# vendors the result at debian/vendor/winbridge before the source package is
+# assembled. `override_dh_auto_build` only checks that vendored binary is
+# there; `override_dh_auto_install` installs it. This mirrors how
+# SecureShellGo vendors its Flutter SDK and pub cache under packaging/vendor/
+# for the same reason (no builder network) — WinBridge's version of that
+# problem is smaller because a Dart CLI has no SDK-in-the-package-build step
+# to vendor around, only the one compiled artifact.
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	test -x debian/vendor/winbridge || { \
+		echo "debian/vendor/winbridge is missing or not executable." >&2; \
+		echo "Run scripts/release/build-ppa-source.sh first — it compiles" >&2; \
+		echo "winbridge with 'dart compile exe' and vendors it here before" >&2; \
+		echo "the source package is assembled; debian/rules never compiles" >&2; \
+		echo "Dart itself, since the Launchpad builders have no Dart SDK." >&2; \
+		exit 1; \
+	}
+
+override_dh_auto_test:
+	# Nothing to test at package-build time. The vendored binary already
+	# passed `dart analyze --fatal-infos` and `dart test` before it was
+	# compiled — see scripts/release/build-ppa-source.sh — and the Launchpad
+	# builders have neither the Dart SDK nor a display to run WinBridge's
+	# suite even if we wanted to repeat it here.
+
+override_dh_auto_install:
+	mkdir -p debian/winbridge/usr/bin
+	install -m 0755 debian/vendor/winbridge debian/winbridge/usr/bin/winbridge
+
+override_dh_strip:
+	# Confirmed locally (see docs/distribution.md): running debhelper's
+	# `strip` over an already-`dart compile exe`-stripped AOT binary a
+	# second time does not fail, but silently corrupts the embedded AOT
+	# snapshot. The binary still runs, but falls back to the bare `dart`
+	# CLI's own `--version` output ("Dart SDK version: ...") instead of
+	# winbridge's, and there is no reason to trust anything else about it
+	# past that point either. `dart compile exe` already stripped it before
+	# it was ever vendored at debian/vendor/winbridge — skip stripping here
+	# entirely, the same way SecureShellGo skips it for its prebuilt Flutter
+	# engine binaries and for the same category of reason: a toolchain other
+	# than debhelper's already decided what this binary's bytes are.
+
+override_dh_dwz:
+	# Nothing for dwz to do — the vendored binary carries no debug info to
+	# compress — but making that explicit here means a future Dart SDK that
+	# changes what `dart compile exe` embeds can't turn a skipped default
+	# into a silent failure.
+
+# No override_dh_auto_clean: `dpkg-buildpackage -S` runs `debian/rules clean`
+# *before* tarring the source, to build from a pristine tree — so a clean
+# step that deleted debian/vendor/winbridge would delete the one thing this
+# whole package exists to ship, on every single source build. The default
+# dh_auto_clean is a no-op here anyway (there is no Makefile/CMakeLists.txt
+# at the root for it to detect a build system from); debian/vendor/winbridge
+# is treated as source, not as build output, precisely so `clean` leaves it
+# alone.

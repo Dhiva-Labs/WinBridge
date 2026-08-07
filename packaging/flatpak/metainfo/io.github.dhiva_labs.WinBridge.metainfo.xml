@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>io.github.dhiva_labs.WinBridge</id>
+  <name>WinBridge</name>
+  <summary>Build and run Windows apps from Linux, without leaving Linux</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.dhiva_labs">
+    <name>Dhiva Labs</name>
+  </developer>
+
+  <description>
+    <p>
+      WinBridge cross-compiles Windows binaries from Go, Rust, .NET, C/C++
+      and Flutter projects and checks every artifact for a real Windows
+      PE32+ header before calling a build a success. Native cross-compilers
+      are used wherever the language allows it; Flutter, which needs Visual
+      Studio and only runs on Windows, is built on a headless VM this tool
+      drives over SSH.
+    </p>
+    <p>
+      It also runs existing Windows programs: `winbridge run app.exe`
+      launches a Windows binary through a managed Wine runtime this tool
+      downloads and verifies itself, with an isolated prefix per app,
+      optional DXVK for Direct3D-over-Vulkan rendering, and winetricks for
+      extra runtimes an app needs. No system Wine, no root, nothing to
+      configure by hand.
+    </p>
+    <p>
+      This is a command-line tool. There is no window to open — run
+      `flatpak run io.github.dhiva_labs.WinBridge --help` from a terminal
+      to get started.
+    </p>
+  </description>
+
+  <!-- No <launchable> element: that pairs a component with an installed
+       .desktop file for a launcher to open, and this manifest deliberately
+       installs none — see the CLI-only rationale above and in README.md.
+       `<provides><binary>` is the correct AppStream way to declare a
+       console-application's command-line entry point instead. -->
+  <provides>
+    <binary>winbridge</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/Dhiva-Labs/WinBridge</url>
+  <url type="bugtracker">https://github.com/Dhiva-Labs/WinBridge/issues</url>
+  <url type="vcs-browser">https://github.com/Dhiva-Labs/WinBridge</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.3.0" date="2026-07-01">
+      <description>
+        <p>See the project's GitHub releases page for the full changelog.</p>
+      </description>
+    </release>
+  </releases>
+</component>

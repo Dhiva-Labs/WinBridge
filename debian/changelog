@@ -1,0 +1,15 @@
+winbridge (0.4.0~noble1) noble; urgency=medium
+
+  * Adds distribution and community infrastructure (M6): a PPA source
+    package and Flatpak manifest alongside the existing GitHub release
+    tarball and .deb, tag-triggered release automation that builds and
+    checksums all three from one `git tag`, and `winbridge report` — a
+    local-only command that prints a filled-in hardware-report template
+    (OS/kernel, CPU, GPU, Vulkan, Wine and prefix/DXVK state, toolchain
+    availability) for a user to paste into an issue by hand. Nothing it
+    gathers is transmitted anywhere on its own.
+  * Adds COMPATIBILITY.md, seeded with what this repository has actually
+    verified so far, and docs/distribution.md describing every install
+    channel and how a version bump flows from tag to release.
+
+ -- Dhiva Labs <dhivakar1010@gmail.com>  Sat, 08 Aug 2026 01:24:50 +0530
