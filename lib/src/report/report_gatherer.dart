@@ -66,7 +66,8 @@ class ReportGatherer {
     );
   }
 
-  String? _redact(String? path) => path == null ? null : redactHome(path, _home);
+  String? _redact(String? path) =>
+      path == null ? null : redactPath(path, _home);
 
   Future<String?> _kernel() async {
     final uname = tools.resolve('uname');

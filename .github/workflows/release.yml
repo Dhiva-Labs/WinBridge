@@ -57,11 +57,18 @@ jobs:
       - name: Compile
         run: dart compile exe bin/winbridge.dart -o winbridge
 
+      # The expected version arrives through `env:`, not `${{ }}` interpolated
+      # straight into the script, so the shell only ever sees it as a variable
+      # value. Every other step here already does it this way; this one was the
+      # exception, and an expression pasted into a `run:` block is the standard
+      # way workflows grow a shell-injection hole later.
       - name: Verify the compiled binary reports the tagged version
+        env:
+          EXPECTED: ${{ steps.version.outputs.version }}
         run: |
           reported="$(./winbridge --version | awk '{print $2}')"
-          if [ "$reported" != "${{ steps.version.outputs.version }}" ]; then
-            echo "::error::compiled binary reports version '$reported', expected '${{ steps.version.outputs.version }}'" >&2
+          if [ "$reported" != "$EXPECTED" ]; then
+            echo "::error::compiled binary reports version '$reported', expected '$EXPECTED'" >&2
             exit 1
           fi
 

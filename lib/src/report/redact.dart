@@ -22,3 +22,34 @@ String redactHome(String path, String? home) {
   }
   return path;
 }
+
+/// Redacts a path for publication: the home prefix becomes `~`, and the
+/// account name is removed wherever else it appears.
+///
+/// [redactHome] alone is not enough, because not every path WinBridge reports
+/// lives under `$HOME`. `WINBRIDGE_WINE=/opt/alice/wine` on a shared build
+/// machine, a `vulkaninfo` found on a `PATH` entry under `/mnt/users/alice`,
+/// or `XDG_CACHE_HOME` pointed outside the home directory all produce paths
+/// that carry an account name straight into a report meant for a public issue.
+///
+/// Matching is on whole path segments, so a user called `bin` or `opt` does not
+/// turn every path into redactions.
+String redactPath(String path, String? home) =>
+    _redactAccountName(redactHome(path, home), home);
+
+String _redactAccountName(String path, String? home) {
+  if (home == null || home.isEmpty) return path;
+  final account = p.basename(p.normalize(home));
+  if (account.isEmpty || account == '.' || account == p.separator) {
+    return path;
+  }
+  final segments = p.split(path);
+  var redacted = false;
+  for (var i = 0; i < segments.length; i++) {
+    if (segments[i] == account) {
+      segments[i] = '<user>';
+      redacted = true;
+    }
+  }
+  return redacted ? p.joinAll(segments) : path;
+}
