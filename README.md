@@ -29,7 +29,7 @@ or on any Linux x86-64, no root needed:
 ```sh
 curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge-0.4.0-linux-x64.tar.gz
 tar -xzf winbridge-0.4.0-linux-x64.tar.gz
-install -Dm755 winbridge ~/.local/bin/winbridge
+install -Dm755 winbridge-0.4.0-linux-x64/winbridge ~/.local/bin/winbridge
 winbridge doctor
 ```
 
