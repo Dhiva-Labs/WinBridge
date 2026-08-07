@@ -1,5 +1,6 @@
 import '../core/toolchain.dart';
 import '../core/version.dart';
+import '../run/dxvk.dart';
 import '../run/wine_runtime.dart';
 import 'command.dart';
 
@@ -97,6 +98,18 @@ class DoctorCommand extends WinBridgeCommand {
       output.info('  ok       wine          ${resolved.binary}');
       output.detail('           via ${resolved.source.label}'
           '${resolved.isVerified ? ', checksum verified' : ''}');
+    }
+
+    // Vulkan is optional: only DXVK needs it, and only for Direct3D apps.
+    // Reported as loader-present or not — which graphics hardware is in the
+    // machine, and whose driver is in use, is not WinBridge's to guess at.
+    final vulkan = VulkanCheck.detect(context.tools);
+    if (vulkan.looksAvailable) {
+      final found = vulkan.loaderPath ?? vulkan.vulkaninfoPath;
+      output.info('  ok       vulkan        $found — `run --dxvk` available');
+    } else {
+      output.info('  absent   vulkan        no Vulkan loader found; '
+          '`run --dxvk` needs one (optional)');
     }
     output.blank();
   }

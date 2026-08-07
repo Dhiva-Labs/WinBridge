@@ -7,6 +7,7 @@ import '../core/errors.dart';
 import '../core/output.dart';
 import '../core/process_runner.dart';
 import '../core/tool_resolver.dart';
+import 'asset_cache.dart';
 
 /// The exact upstream Wine build WinBridge manages.
 ///
@@ -21,41 +22,24 @@ import '../core/tool_resolver.dart';
 /// build runs them from a pure 64-bit install with nothing added to the host.
 /// Requiring a multilib setup would put Wine plumbing back in front of the
 /// user, which is the thing this feature exists to remove.
-class WineBuild {
-  const WineBuild({
-    required this.version,
-    required this.name,
-    required this.url,
-    required this.sha256,
-  });
-
-  /// Upstream release, e.g. `11.14`.
-  final String version;
-
-  /// Directory name inside the archive and under the runtime root. Carrying
-  /// the version means a new pin installs alongside the old one rather than
-  /// overwriting a runtime that might be in use.
-  final String name;
-
-  final String url;
-
-  /// Lowercase hex, verified before the archive is ever unpacked.
-  final String sha256;
-
-  /// The loader `run` invokes. The wow64 build ships a single `bin/wine` that
-  /// handles both 32- and 64-bit Windows binaries; there is no separate
-  /// `wine64` to choose between.
-  String wineBinaryIn(String runtimeDirectory) =>
-      p.join(runtimeDirectory, 'bin', 'wine');
-}
-
-const pinnedWineBuild = WineBuild(
-  version: '11.14',
+const pinnedWineBuild = PinnedAsset(
   name: 'wine-11.14-amd64-wow64',
+  version: '11.14',
   url: 'https://github.com/Kron4ek/Wine-Builds/releases/download/11.14/'
       'wine-11.14-amd64-wow64.tar.xz',
   sha256: '707956fa1574ad1660c4d7f2cfd9c024e0f437ad0a2d501a53b717adb1288222',
+  archiveTopLevel: 'wine-11.14-amd64-wow64',
 );
+
+/// The loader `run` invokes, inside a runtime directory. The wow64 build ships
+/// a single `bin/wine` that handles both 32- and 64-bit Windows binaries;
+/// there is no separate `wine64` to choose between.
+String wineBinaryIn(String runtimeDirectory) =>
+    p.join(runtimeDirectory, 'bin', 'wine');
+
+/// `wineserver` beside a given `wine`, which is how Wine itself lays them out.
+String wineserverBeside(String wineBinary) =>
+    p.join(p.dirname(wineBinary), 'wineserver');
 
 /// Where a resolved Wine came from. Drives what WinBridge is willing to claim
 /// about it — only [managed] has had its bytes checked against a pin.
@@ -93,6 +77,10 @@ class ResolvedWine {
   /// False for the two paths the user chose explicitly, which are trusted on
   /// their say-so rather than on a checksum.
   bool get isVerified => source == WineSource.managed;
+
+  /// The directory holding `wine`, which is also where `wineserver` and the
+  /// rest of the tools live.
+  String get binDirectory => p.dirname(binary);
 }
 
 /// Finds, and when asked installs, the Wine build `winbridge run` uses.
@@ -100,8 +88,8 @@ class ResolvedWine {
 /// Resolution order, first hit wins:
 ///
 ///  1. `WINBRIDGE_WINE` — an explicit choice, used as given.
-///  2. The managed runtime under `~/.cache/winbridge/runtimes/`, but only if
-///     its install stamp records the checksum this build is pinned to.
+///  2. The managed runtime, but only if its install stamp records the checksum
+///     this build is pinned to.
 ///  3. `wine` on the search path, via [ToolResolver].
 class WineRuntime {
   WineRuntime({
@@ -110,23 +98,25 @@ class WineRuntime {
     required this.runner,
     required this.output,
     this.build = pinnedWineBuild,
-  });
+  }) : _cache = AssetCache(
+          config: config,
+          tools: tools,
+          runner: runner,
+          output: output,
+        );
 
   final WinBridgeConfig config;
   final ToolResolver tools;
   final ProcessRunner runner;
   final Output output;
-  final WineBuild build;
+  final PinnedAsset build;
+  final AssetCache _cache;
 
-  /// Written after a successful verified install; its presence *and* contents
-  /// are what make a managed runtime usable. A half-extracted or hand-dropped
-  /// directory has no stamp, so it is never run.
-  static const stampFileName = '.winbridge-verified';
+  /// Kept as the one name callers and tests refer to; the rule it enforces
+  /// lives in [AssetCache].
+  static const stampFileName = AssetCache.stampFileName;
 
-  String? get managedDirectory {
-    final root = config.managedRuntimeRoot;
-    return root == null ? null : p.join(root, build.name);
-  }
+  String? get managedDirectory => _cache.directoryFor(build);
 
   /// The already-usable Wine, or null when nothing is installed yet.
   ResolvedWine? resolve() {
@@ -141,9 +131,11 @@ class WineRuntime {
     }
 
     final managed = managedDirectory;
-    if (managed != null && _isInstalled(managed)) {
+    if (managed != null &&
+        _cache.isInstalled(build) &&
+        _isExecutableFile(wineBinaryIn(managed))) {
       return ResolvedWine(
-        binary: build.wineBinaryIn(managed),
+        binary: wineBinaryIn(managed),
         source: WineSource.managed,
         runtimeDirectory: managed,
       );
@@ -177,140 +169,23 @@ class WineRuntime {
     if (installed == null) {
       throw BuildFailure(
         'the Wine runtime did not install correctly',
-        details: 'expected ${build.wineBinaryIn(target)}',
+        details: 'expected ${wineBinaryIn(target)}',
       );
     }
     return installed;
   }
 
-  /// Downloads, verifies and unpacks the pinned build.
-  ///
-  /// The checksum is checked before anything is unpacked — a mismatched
-  /// archive is deleted, never opened. Extraction happens in a scratch
-  /// directory beside the destination and is moved into place with a single
-  /// rename, so a runtime directory either does not exist or is a complete,
-  /// verified install; an interrupted download cannot leave a usable-looking
-  /// half of one.
+  /// Downloads, verifies and unpacks the pinned build. See [AssetCache.install]
+  /// for the ordering guarantees.
   Future<void> install() async {
-    final root = config.managedRuntimeRoot;
-    final target = managedDirectory;
-    if (root == null || target == null) {
-      throw const BuildFailure('no cache directory to install a runtime into');
-    }
-
-    final curl = tools.requirePath('curl', reason: 'downloads the Wine runtime');
-    final tar = tools.requirePath('tar', reason: 'unpacks the Wine runtime');
-    final sha256sum =
-        tools.requirePath('sha256sum', reason: 'verifies the Wine runtime');
-
-    Directory(root).createSync(recursive: true);
-    // Beside the destination, not in /tmp: the final step is a rename, which
-    // is only atomic within one filesystem.
-    final scratch =
-        Directory(p.join(root, '.install-${build.name}-$pid')).absolute;
-    if (scratch.existsSync()) scratch.deleteSync(recursive: true);
-    scratch.createSync(recursive: true);
-
-    try {
-      final archive = p.join(scratch.path, 'wine.tar.xz');
-      output.detail('downloading ${build.url}');
-      final download = await runner.run(
-        curl,
-        [
-          '-fL',
-          '--silent',
-          '--show-error',
-          '--retry', '3',
-          '--connect-timeout', '20',
-          '-o', archive,
-          build.url,
-        ],
-      );
-      if (!download.ok) {
-        throw BuildFailure(
-          'could not download the Wine runtime',
-          details: '${build.url}\n${download.diagnostics}'.trim(),
-        );
-      }
-
-      await _verifyChecksum(sha256sum, archive);
-
-      output.detail('unpacking into ${scratch.path}');
-      final unpack = await runner.run(
-        tar,
-        ['-xJf', archive, '-C', scratch.path],
-      );
-      if (!unpack.ok) {
-        throw BuildFailure(
-          'could not unpack the Wine runtime',
-          details: unpack.diagnostics,
-        );
-      }
-
-      final unpacked = Directory(p.join(scratch.path, build.name));
-      if (!unpacked.existsSync()) {
-        throw BuildFailure(
-          'the Wine archive did not contain ${build.name}/',
-          details: 'downloaded from ${build.url}',
-        );
-      }
-      if (!_isExecutableFile(build.wineBinaryIn(unpacked.path))) {
-        throw BuildFailure(
-          'the Wine archive has no runnable bin/wine',
-          details: build.wineBinaryIn(unpacked.path),
-        );
-      }
-
-      // Stamp before publishing, so the directory is never visible at its
-      // final path without the proof that it was verified.
-      File(p.join(unpacked.path, stampFileName))
-          .writeAsStringSync('${build.name}\n${build.sha256}\n');
-
-      final destination = Directory(target);
-      if (destination.existsSync()) destination.deleteSync(recursive: true);
-      unpacked.renameSync(target);
-      output.detail('installed $target');
-    } finally {
-      if (scratch.existsSync()) scratch.deleteSync(recursive: true);
-    }
-  }
-
-  Future<void> _verifyChecksum(String sha256sum, String archive) async {
-    final result = await runner.run(sha256sum, [archive]);
-    // The digest is the first whitespace-separated field of the only line.
-    final actual = result.stdout.trim().split(RegExp(r'\s+')).firstOrNull ?? '';
-    if (!result.ok || actual.isEmpty) {
-      _discard(archive);
+    await _cache.install(build);
+    final directory = managedDirectory;
+    if (directory != null && !_isExecutableFile(wineBinaryIn(directory))) {
       throw BuildFailure(
-        'could not checksum the downloaded Wine runtime',
-        details: result.diagnostics,
+        'the Wine archive has no runnable bin/wine',
+        details: wineBinaryIn(directory),
       );
     }
-    if (actual.toLowerCase() != build.sha256.toLowerCase()) {
-      _discard(archive);
-      throw BuildFailure(
-        'the downloaded Wine runtime does not match its expected checksum',
-        details: 'expected ${build.sha256}\n'
-            'got      ${actual.toLowerCase()}\n'
-            'from     ${build.url}\n'
-            'The download was discarded and nothing was unpacked.',
-      );
-    }
-    output.detail('checksum verified: $actual');
-  }
-
-  static void _discard(String path) {
-    final file = File(path);
-    if (file.existsSync()) file.deleteSync();
-  }
-
-  /// A managed runtime counts as installed only with a stamp naming the
-  /// checksum this build is pinned to, and a runnable loader beside it.
-  bool _isInstalled(String directory) {
-    final stamp = File(p.join(directory, stampFileName));
-    if (!stamp.existsSync()) return false;
-    if (!stamp.readAsStringSync().contains(build.sha256)) return false;
-    return _isExecutableFile(build.wineBinaryIn(directory));
   }
 
   static bool _isExecutableFile(String path) {

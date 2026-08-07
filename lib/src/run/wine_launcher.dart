@@ -18,6 +18,7 @@ class LaunchRequest {
     required this.prefix,
     this.arguments = const [],
     this.verbose = false,
+    this.dllOverrides,
   });
 
   /// Absolute path to the `.exe`.
@@ -30,6 +31,10 @@ class LaunchRequest {
   final List<String> arguments;
 
   final bool verbose;
+
+  /// `WINEDLLOVERRIDES` for this run, or null to leave Wine's own defaults
+  /// alone. Set when DXVK is in play — see `dxvkDllOverrides`.
+  final String? dllOverrides;
 }
 
 /// Runs a Windows executable under the managed Wine runtime.
@@ -76,6 +81,7 @@ class WineLauncher {
         // --verbose the user has asked to see everything, so the filter lifts
         // to Wine's own default rather than staying silent.
         if (!request.verbose) 'WINEDEBUG': '-all',
+        'WINEDLLOVERRIDES': ?request.dllOverrides,
       };
 
   /// Launches and waits, returning the app's own exit code.

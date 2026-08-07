@@ -115,7 +115,7 @@ transport; no new remote input reaches a shell unvalidated.
 **Gates:** signed sample installer built end-to-end in CI; signing keys never
 touch argv or logs; downloads pinned to official origins with checksums.
 
-### M4 — run Windows apps: launcher MVP (first slice shipped)
+### M4 — run Windows apps: launcher MVP (mostly shipped)
 
 **Shipped — `winbridge run <app.exe>`:**
 
@@ -125,25 +125,40 @@ touch argv or logs; downloads pinned to official origins with checksums.
   configure or know about. `WINBRIDGE_WINE` overrides it; a system `wine` is
   used when one is already there.
 - One isolated prefix per app under `~/.local/share/winbridge/prefixes/<app>`,
-  named from the executable, `--prefix` to override and `--list-prefixes` to
-  see them. Uninstalling an app is deleting its directory.
+  named from the executable, `--prefix` to override. Uninstalling an app is
+  deleting its directory.
 - PE32+ check before launch, the app's own output streamed live, and the app's
   exit code returned as the command's own.
 
+**Shipped — DXVK:**
+
+- Pinned [DXVK](https://github.com/doitsujin/dxvk) release installed per
+  prefix: x64 DLLs into `system32`, x32 into `syswow64`, with
+  `WINEDLLOVERRIDES` composed so a user's own overrides still win.
+- `winbridge run --dxvk` / `--no-dxvk`, sticky per prefix — it sets that app's
+  default rather than applying to a single launch.
+- `doctor` reports whether a Vulkan loader is present, in hardware-neutral
+  terms, and `--dxvk` refuses with an explanation when there is none.
+
+**Shipped — winetricks and prefix management:**
+
+- `winbridge prefix list` / `delete <name>` / `tricks <name> <verb...>`,
+  running a tag-pinned, checksum-verified winetricks against WinBridge's own
+  Wine, with output streamed so long installs are not silent.
+- Verbs are validated before they can reach an argument vector.
+- `run --list-prefixes` remains as a deprecated alias.
+
 See `docs/running.md`.
 
-**Still outstanding in M4:**
-
-- **DXVK** installed automatically — D3D9/10/11 over Vulkan, for 3D apps that
-  Wine's OpenGL translation handles poorly. The next slice.
-- **`.desktop` entries**, so installed apps appear in the desktop launcher
-  rather than only under `winbridge run`.
-- **winetricks**, for apps that need extra runtimes (a particular .NET, a VC++
-  redistributable) inside their prefix.
+- **`.desktop` entries** — `winbridge desktop add <app.exe>` puts an app in
+  the desktop launcher; `desktop list`/`remove` manage the entries, which are
+  ownership-marked so removal can never touch a file WinBridge did not write.
 
 **Gates:** prefix isolation tests; no writes outside prefix and config dirs;
-runtime download checksummed — verified *before* the archive is unpacked, and a
-runtime without a verification stamp is never run.
+every download checksummed — verified *before* the archive is unpacked or the
+file is made executable, and an asset without a verification stamp is never
+used. The one trust boundary WinBridge cannot extend is what winetricks verbs
+themselves download; that is documented where users will meet it.
 
 ### M5 — compatibility recipes and VM fallback for running apps
 

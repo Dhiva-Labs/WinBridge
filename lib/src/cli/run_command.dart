@@ -1,6 +1,8 @@
+import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/errors.dart';
+import '../run/dxvk.dart';
 import '../run/prefix.dart';
 import '../run/wine_launcher.dart';
 import '../run/wine_runtime.dart';
@@ -21,9 +23,17 @@ class RunCommand extends WinBridgeCommand {
             "Defaults to the executable's file name without .exe.",
       )
       ..addFlag(
+        'dxvk',
+        help: 'Render Direct3D through Vulkan instead of Wine\'s own\n'
+            'translation, which is markedly faster for 3D apps.\n'
+            'Sets the default for this prefix: --dxvk turns it on and\n'
+            'leaves it on, --no-dxvk turns it back off.',
+      )
+      ..addFlag(
         'list-prefixes',
         negatable: false,
-        help: 'List the app prefixes that exist, then exit.',
+        hide: true,
+        help: 'Deprecated: use `winbridge prefix list`.',
       );
   }
 
@@ -43,6 +53,8 @@ class RunCommand extends WinBridgeCommand {
     final prefixes = PrefixManager(context.config);
 
     if (results.flag('list-prefixes')) {
+      output.warn('`run --list-prefixes` is deprecated; '
+          'use `winbridge prefix list`.');
       return _listPrefixes(prefixes);
     }
 
@@ -81,6 +93,8 @@ class RunCommand extends WinBridgeCommand {
           '(first run takes a moment)');
     }
 
+    final useDxvk = await _settleDxvk(results, prefix);
+
     final code = await WineLauncher(
       runner: context.processes,
       output: output,
@@ -90,10 +104,53 @@ class RunCommand extends WinBridgeCommand {
       prefix: prefix,
       arguments: appArguments,
       verbose: output.verbose,
+      dllOverrides: useDxvk
+          ? dxvkDllOverrides(
+              existing: context.config.environment['WINEDLLOVERRIDES'],
+            )
+          : null,
     ));
 
     output.detail('app exited with $code');
     return code;
+  }
+
+  /// Works out whether this run uses DXVK, installing or removing it when the
+  /// flag says so.
+  ///
+  /// With no flag the prefix decides: a prefix that was set up with `--dxvk`
+  /// keeps using it, which is the point of making it sticky — you say it once
+  /// per app, not once per launch.
+  Future<bool> _settleDxvk(ArgResults results, AppPrefix prefix) async {
+    final output = context.output;
+    if (!results.wasParsed('dxvk')) return DxvkInstaller.isEnabledFor(prefix);
+
+    if (!results.flag('dxvk')) {
+      if (DxvkInstaller.isEnabledFor(prefix)) {
+        DxvkInstaller.disableFor(prefix);
+        output.info('DXVK turned off for ${prefix.name}.');
+      }
+      return false;
+    }
+
+    final vulkan = VulkanCheck.detect(context.tools);
+    if (!vulkan.looksAvailable) {
+      throw const BuildFailure(
+        'no Vulkan loader found, so DXVK cannot run here',
+        details: VulkanCheck.missingAdvice,
+      );
+    }
+
+    if (DxvkInstaller.installedVersion(prefix) != pinnedDxvk.version) {
+      output.info('Installing DXVK ${pinnedDxvk.version} into ${prefix.name}');
+      await DxvkInstaller(
+        config: context.config,
+        tools: context.tools,
+        runner: context.processes,
+        output: output,
+      ).installInto(prefix);
+    }
+    return true;
   }
 
   int _listPrefixes(PrefixManager prefixes) {
@@ -108,8 +165,7 @@ class RunCommand extends WinBridgeCommand {
       output.info('${prefix.name.padRight(20)} ${prefix.path}');
     }
     output.blank();
-    output.info('Reset an app by deleting its directory.');
+    output.info('Reset an app with `winbridge prefix delete <name>`.');
     return 0;
   }
 }
-

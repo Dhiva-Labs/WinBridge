@@ -458,6 +458,42 @@ is deleted and `tar` never sees it — extracts into a scratch directory beside
 the destination, and publishes with a single rename, so a runtime directory is
 either absent or complete.
 
+**One download path, three components.** Wine, DXVK and winetricks are all
+`PinnedAsset`s installed by `AssetCache`, the only code in the package that
+downloads anything. Adding a pinned component is a `const PinnedAsset` — name,
+version, URL, SHA-256, plus either the archive's top-level directory or the
+file name to save it as — and nothing else, so there is one implementation of
+the ordering above rather than three that have to agree:
+
+```dart
+const pinnedDxvk = PinnedAsset(
+  name: 'dxvk-3.0.2',
+  version: '3.0.2',
+  url: 'https://github.com/doitsujin/dxvk/releases/download/v3.0.2/...',
+  sha256: '9c538924...',
+  archiveTopLevel: 'dxvk-3.0.2',
+);
+```
+
+A single-file asset (winetricks) carries `executable: true`, and the execute
+bit is set **after** the checksum passes — nothing unverified is ever made
+runnable.
+
+**What the trust boundary does not cover.** `winbridge prefix tricks` runs
+winetricks, which downloads third-party redistributables of its own and
+checksums them itself. WinBridge vouches for the winetricks script and for
+nothing past it. That is a real extension of trust, so it is stated in
+`docs/running.md` where a user deciding whether to run a verb will see it,
+not only here.
+
+**Tokens that reach a third-party argv.** Winetricks verbs are validated
+against `^[a-z0-9._+][a-z0-9._+-]*$` before they become argv elements. The
+charset is winetricks' own verb naming; the leading-character rule is ours, and
+matches `isSafeNameComponent`'s: a token starting with `-` is read as an
+*option* by whatever receives it, so `tricks <prefix> -q` would silently change
+winetricks' behaviour instead of naming a verb. No real verb starts with a
+dash.
+
 **The VM path** (`lib/src/vm/`, M2) implements `Toolchain` like any other
 adapter, registered last so native cross-compilers win. Two things follow from
 the rules above:

@@ -66,7 +66,7 @@ void main() {
     });
 
     test('locates its loader inside the runtime directory', () {
-      expect(pinnedWineBuild.wineBinaryIn('/rt'), '/rt/bin/wine');
+      expect(wineBinaryIn('/rt'), '/rt/bin/wine');
     });
   });
 

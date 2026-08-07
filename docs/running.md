@@ -35,6 +35,7 @@ winbridge run myapp/build/winbridge/windows-x64/myapp.exe
 | What | Where | Safe to delete? |
 | --- | --- | --- |
 | Wine runtime | `~/.cache/winbridge/runtimes/<build>/` | Yes — re-downloaded on next run |
+| DXVK, winetricks | `~/.cache/winbridge/runtimes/<name>/` | Yes — same |
 | App prefixes | `~/.local/share/winbridge/prefixes/<app>/` | Yes, but it is that app's data |
 
 Both honour the XDG variables (`XDG_CACHE_HOME`, `XDG_DATA_HOME`). The split is
@@ -53,15 +54,15 @@ installer that wrecks its own registry, or an app that needs some ancient
 runtime, cannot reach anything else.
 
 ```sh
-winbridge run --list-prefixes          # what exists
+winbridge prefix list                  # what exists, and which have DXVK
 winbridge run app.exe --prefix shared  # put two apps in one world on purpose
 ```
 
-**Resetting an app is deleting its prefix.** There is no uninstall command and
+**Resetting an app is deleting its prefix.** There is no uninstall to run and
 no other state to clean up:
 
 ```sh
-rm -rf ~/.local/share/winbridge/prefixes/game
+winbridge prefix delete game
 ```
 
 The next run builds a fresh one. Two apps that must see each other — an
@@ -69,6 +70,71 @@ installer and the thing it installed — should share a `--prefix`.
 
 The first run in a new prefix takes noticeably longer: Wine is creating the C:
 drive and registry from scratch. It is a one-off per app.
+
+`winbridge run --list-prefixes` still works and prints a deprecation notice;
+use `winbridge prefix list`.
+
+## DXVK: faster Direct3D
+
+Wine translates Direct3D to OpenGL. [DXVK](https://github.com/doitsujin/dxvk)
+translates it to Vulkan instead, which is usually a large improvement for 3D
+applications and games. WinBridge installs it per prefix:
+
+```sh
+winbridge run game.exe --dxvk     # install DXVK here and use it
+winbridge run game.exe            # ...and from now on, without asking again
+winbridge run game.exe --no-dxvk  # back to Wine's own Direct3D
+```
+
+The flag is **sticky per prefix**: it sets that app's default rather than
+applying to one launch. `winbridge prefix list` shows which prefixes have it
+and at what version.
+
+What happens under the hood: the DXVK DLLs (`d3d8`, `d3d9`, `d3d10core`,
+`d3d11`, `dxgi`) are copied into the prefix's `system32` and `syswow64`, and
+runs get `WINEDLLOVERRIDES` telling Wine to load those instead of its own. If
+you already export `WINEDLLOVERRIDES` yourself, yours is appended after ours —
+Wine takes the last entry for a given DLL, so your setting wins.
+
+DXVK needs a working Vulkan setup. `winbridge doctor` reports whether a Vulkan
+loader is present, and `--dxvk` refuses with an explanation rather than failing
+obscurely if there is none. The check is shallow on purpose: it tells you the
+loader is installed, not that your graphics driver is configured — that part is
+between you and your distribution.
+
+`--no-dxvk` stops the overrides; it leaves the DLLs in the prefix, because the
+override is what decides which implementation loads. A prefix you want
+genuinely pristine is `winbridge prefix delete` away.
+
+## winetricks: runtimes and tweaks
+
+Some Windows apps need pieces Wine does not ship — a particular Visual C++
+redistributable, .NET, core fonts.
+[winetricks](https://github.com/Winetricks/winetricks) installs those into a
+prefix, and WinBridge runs a pinned copy of it against your Wine:
+
+```sh
+winbridge prefix tricks mygame corefonts vcrun2019
+winbridge prefix tricks mygame list            # what verbs exist
+winbridge prefix tricks mygame list-installed  # what this prefix already has
+```
+
+Output streams as it goes — some verbs download a lot and take minutes, and a
+silent terminal for that long is indistinguishable from a hang.
+
+**What you are trusting.** WinBridge pins winetricks itself to a tagged release
+and checks its SHA-256 before running it. It cannot do the same for what the
+*verbs* fetch: those download redistributables from Microsoft and other third
+parties at install time, and it is winetricks — not WinBridge — that checksums
+them. So `winbridge prefix tricks` extends your trust to winetricks and to
+whoever is serving those files. That is the same bargain as running winetricks
+directly; it is stated here so it is a decision rather than a surprise. If that
+is not a trade you want, skip it: plenty of apps need nothing.
+
+A note on our Wine build: winetricks warns that Wine's wow64 mode is
+experimental. WinBridge pins a wow64 build deliberately (it avoids needing
+32-bit host libraries), so expect that warning. Verbs that install 32-bit
+components are the ones most likely to be affected.
 
 ## Console and GUI apps
 
@@ -100,22 +166,22 @@ choosing them means.
 
 ## Honest limitations
 
-This is the first slice of the "run Windows apps" half of WinBridge. What
-works today is launching an app in an isolated prefix. What is not here yet:
+Launching apps in isolated prefixes, DXVK and winetricks all work today.
+What to know, and what is still missing:
 
-- **No DXVK.** Direct3D goes through Wine's OpenGL translation, which is
-  markedly slower for 3D games. DXVK — D3D9/10/11 over Vulkan — is the next
-  slice.
-- **No `.desktop` integration.** Apps do not appear in your launcher; you start
-  them with `winbridge run`.
-- **No winetricks.** Apps needing extra runtimes (a specific .NET, a VC++
-  redistributable) have no supported way to get them yet.
+- **DXVK is installed but its rendering is not verified by us.** The install,
+  the DLL placement and the overrides are covered by tests that run against a
+  real prefix. Actual Direct3D rendering is not: it needs a machine with a
+  working Vulkan driver and a 3D application, which the test suite does not
+  have. Treat the performance win as expected rather than measured here.
 - **No compatibility database.** Whether a given app works is between you and
   Wine; [WineHQ's AppDB](https://appdb.winehq.org/) is the place to check.
   Reporting what you find is genuinely useful — see `CONTRIBUTING.md`.
 - **64-bit is the tested path.** The pinned build is a WoW64 build, so 32-bit
   Windows apps should run without any 32-bit libraries on your host, but the
   binaries WinBridge itself produces are 64-bit and that is what is verified.
+- **No `.desktop` integration yet.** Apps do not appear in your desktop
+  launcher; you start them with `winbridge run`.
 
 If an app does not work, the prefix is disposable — delete it and try again
 with different settings before assuming the app is at fault.

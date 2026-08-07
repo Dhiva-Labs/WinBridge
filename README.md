@@ -19,16 +19,16 @@ From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases) —
 on Debian/Ubuntu:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.2.0/winbridge_0.2.0-1_amd64.deb
-sudo apt install ./winbridge_0.2.0-1_amd64.deb
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge_0.3.0-1_amd64.deb
+sudo apt install ./winbridge_0.3.0-1_amd64.deb
 winbridge doctor
 ```
 
 or on any Linux x86-64, no root needed:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.2.0/winbridge-0.2.0-linux-x64.tar.gz
-tar -xzf winbridge-0.2.0-linux-x64.tar.gz
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.3.0/winbridge-0.3.0-linux-x64.tar.gz
+tar -xzf winbridge-0.3.0-linux-x64.tar.gz
 install -Dm755 winbridge ~/.local/bin/winbridge
 winbridge doctor
 ```
@@ -104,8 +104,35 @@ app gets its own prefix under `~/.local/share/winbridge/prefixes/`, so
 resetting an app is deleting one directory. Console output streams through and
 the app's exit code becomes `winbridge run`'s.
 
-No DXVK, `.desktop` entries or winetricks yet — see `docs/running.md` for what
-works today and what does not.
+Direct3D apps can render through Vulkan with `winbridge run --dxvk` (sticky
+per app), and `winbridge prefix tricks <app> <verb...>` installs extra
+runtimes an app needs (fonts, VC++ redistributables) into just that app's
+prefix. See `docs/running.md` for what works today and what does not.
+
+## Desktop entries
+
+Make an app WinBridge runs show up in your desktop launcher, instead of only
+under `winbridge run`:
+
+```sh
+winbridge desktop add myapp/build/winbridge/windows-x64/myapp.exe
+winbridge desktop add path/to/game.exe --name "My Game" --prefix game
+winbridge desktop list
+winbridge desktop remove myapp
+```
+
+`add` writes `~/.local/share/applications/winbridge-<name>.desktop` (honouring
+`XDG_DATA_HOME`), pointed at `winbridge run --prefix <prefix> <exe>`. `list`
+shows only the entries WinBridge itself created; `remove` deletes one by name
+and refuses to touch anything it did not write.
+
+The entry's `Exec=` line calls plain `winbridge`, so it only works if
+`winbridge` is on `PATH` — true for the `.deb` install, and true once you have
+`~/.local/bin` (or wherever you installed it) on `PATH` for the tarball
+install.
+
+Icons are generic (`application-x-executable`) for now — extracting an app's
+own icon out of its `.exe` is future work.
 
 ## Windows-only devices
 
