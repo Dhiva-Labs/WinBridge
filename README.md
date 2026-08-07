@@ -12,7 +12,22 @@ WinBridge drives over SSH — see `docs/vm-setup.md`.
 Running Windows apps *on* Linux is the other half of the project and is on
 the roadmap; see `PLAN.md`.
 
-## Quick start
+## Install
+
+Grab the latest binary from the
+[releases page](https://github.com/Dhiva-Labs/WinBridge/releases):
+
+```sh
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.1.0/winbridge-0.1.0-linux-x64.tar.gz
+tar -xzf winbridge-0.1.0-linux-x64.tar.gz
+install -Dm755 winbridge ~/.local/bin/winbridge
+winbridge doctor
+```
+
+Verify the download against the release's `SHA256SUMS` asset with
+`sha256sum -c`.
+
+## Quick start from source
 
 ```sh
 dart pub get
