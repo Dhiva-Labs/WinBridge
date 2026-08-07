@@ -29,6 +29,8 @@ class FakeProcessRunner extends ProcessRunner {
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String> environment = const {},
+    bool streamOutput = false,
+    bool captureOutput = true,
   }) async {
     calls.add(RecordedRun(executable, arguments, workingDirectory));
     if (calls.length <= responses.length) {

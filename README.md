@@ -9,8 +9,9 @@ cross-compilers are used wherever the language allows it; Flutter, which
 needs Visual Studio and only runs on Windows, is built on a headless VM that
 WinBridge drives over SSH — see `docs/vm-setup.md`.
 
-Running Windows apps *on* Linux is the other half of the project and is on
-the roadmap; see `PLAN.md`.
+It also *runs* them. `winbridge run app.exe` launches a Windows program on
+Linux through a Wine runtime WinBridge downloads and manages itself — nothing
+to install, nothing to configure. See `docs/running.md`.
 
 ## Install
 
@@ -18,16 +19,16 @@ From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases) —
 on Debian/Ubuntu:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.1.0/winbridge_0.1.0-1_amd64.deb
-sudo apt install ./winbridge_0.1.0-1_amd64.deb
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.2.0/winbridge_0.2.0-1_amd64.deb
+sudo apt install ./winbridge_0.2.0-1_amd64.deb
 winbridge doctor
 ```
 
 or on any Linux x86-64, no root needed:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.1.0/winbridge-0.1.0-linux-x64.tar.gz
-tar -xzf winbridge-0.1.0-linux-x64.tar.gz
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.2.0/winbridge-0.2.0-linux-x64.tar.gz
+tar -xzf winbridge-0.2.0-linux-x64.tar.gz
 install -Dm755 winbridge ~/.local/bin/winbridge
 winbridge doctor
 ```
@@ -56,6 +57,9 @@ dart compile exe bin/winbridge.dart -o winbridge
   for Windows. `--target windows-x64|windows-arm64`, `--debug`, `--output
   <dir>`. Anything after `--` is passed straight through to the underlying
   compiler.
+- `winbridge run <app.exe> [-- arguments for the app]` — run a Windows program
+  on Linux. `--prefix <name>` picks which app world to use, `--list-prefixes`
+  shows what exists. See `docs/running.md`.
 - `winbridge detect [directory]` — report what project type WinBridge sees
   and which toolchain would build it, without building anything.
 - `winbridge doctor` — check which toolchains have their required tools
@@ -86,6 +90,22 @@ mishandled; driving real build systems is future work.
 
 Every produced artifact is checked for a valid Windows PE32+ header before
 the build is reported as a success — see `docs/DESIGN.md`.
+
+## Running what you built
+
+```sh
+winbridge build ./myapp
+winbridge run myapp/build/winbridge/windows-x64/myapp.exe
+```
+
+The first `run` downloads the pinned Wine build into
+`~/.cache/winbridge/runtimes/` and checks it against an embedded SHA-256. Each
+app gets its own prefix under `~/.local/share/winbridge/prefixes/`, so
+resetting an app is deleting one directory. Console output streams through and
+the app's exit code becomes `winbridge run`'s.
+
+No DXVK, `.desktop` entries or winetricks yet — see `docs/running.md` for what
+works today and what does not.
 
 ## Windows-only devices
 

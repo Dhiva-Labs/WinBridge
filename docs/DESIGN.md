@@ -32,6 +32,7 @@ success: it returns paths, and the CLI decides.
 | `lib/src/toolchains/` | native cross-compiler adapters | adapters |
 | `lib/src/pe/` | PE32+ header verification | adapters |
 | `lib/src/vm/` | Windows VM build path (M2) | VM |
+| `lib/src/run/` | managed Wine runtime, app prefixes, launching (M4) | core |
 
 `lib/winbridge.dart` exports everything an adapter needs. Import that, not
 individual `src/` files:
@@ -424,6 +425,38 @@ Verifiers are composed by the CLI and passed to `WinBridgeRunner`, never by
 adapters — a toolchain does not vouch for its own output. They run after the
 path rules pass, over every artifact. Throw `ArtifactFailure` with a message
 naming what was found instead ("not a Windows executable: ELF 64-bit").
+
+**Running apps** (`lib/src/run/`, M4) is the one part of the tree that is not
+about producing a binary, so it sits outside the `Toolchain` contract entirely:
+there is no project, no build request, no artifact. It is reached only from
+`RunCommand`, and it reuses three things from elsewhere.
+
+- `lib/src/pe/`'s `validatePeHeader`, to answer "is this even a Windows
+  program" before Wine is asked to run it. This is the second sanctioned
+  importer of `lib/src/pe/` alongside the composition root — a header check is
+  a pure function over bytes, and duplicating it to preserve a layering rule
+  would be worse than the rule is worth.
+- `isSafeNameComponent` from `lib/src/detect/`, for prefix names. Same
+  guarantee, same reason: a prefix name becomes a directory, and it comes from
+  either a file name on disk or the command line.
+- `ProcessRunner`, like everything else. `run` passes `streamOutput: true` and
+  `captureOutput: false`, which is what that pair of flags exists for: the
+  child's output is the user's goal rather than diagnostics about a build, and
+  an app that runs for an hour must not accumulate its output in memory.
+
+**Trust in the runtime.** `WineRuntime` resolves in a fixed order —
+`WINBRIDGE_WINE`, then the managed runtime, then `PATH` — and only the managed
+one is verified. A managed runtime is usable only if it carries a
+`.winbridge-verified` stamp naming the pinned checksum, which is written after
+verification and before the directory is moved to its final path. So an
+interrupted install, or a directory someone dropped there by hand, is ignored
+rather than run. The other two paths are the user's explicit choice and are
+trusted on that basis; `doctor` says which case a machine is in.
+
+Installation verifies the checksum **before** unpacking — a mismatched archive
+is deleted and `tar` never sees it — extracts into a scratch directory beside
+the destination, and publishes with a single rename, so a runtime directory is
+either absent or complete.
 
 **The VM path** (`lib/src/vm/`, M2) implements `Toolchain` like any other
 adapter, registered last so native cross-compilers win. Two things follow from

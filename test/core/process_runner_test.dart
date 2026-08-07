@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:winbridge/winbridge.dart';
 
@@ -199,6 +201,35 @@ void main() {
           ProcessRunner(output: Output(verbose: true, out: out, err: err));
       await verbose.run('/bin/ls', ['/winbridge/nonexistent']);
       expect(err.toString(), isNotEmpty);
+    });
+  });
+
+  group('a child that leaves something holding the pipe', () {
+    // Wine is the real case: `wine app.exe` exits when the app does, but
+    // wineserver and friends inherit the same stdout and outlive it. Waiting
+    // for the streams to close before reading the exit code hangs on a program
+    // that has already finished, which is exactly what `winbridge run` hit.
+    //
+    // `setsid -f` reproduces it without a shell: it forks, the parent exits
+    // immediately, and the detached grandchild keeps the inherited pipe open.
+    const setsid = '/usr/bin/setsid';
+
+    test('returns when the process exits, not when the pipe closes', () async {
+      final started = DateTime.now();
+      final result = await runner.run(setsid, ['-f', '/bin/sleep', '10']);
+      final elapsed = DateTime.now().difference(started);
+
+      expect(result.exitCode, 0);
+      expect(
+        elapsed,
+        lessThan(const Duration(seconds: 7)),
+        reason: 'waited on the lingering grandchild instead of the child',
+      );
+    }, skip: File(setsid).existsSync() ? false : 'setsid not available');
+
+    test('output written before the exit is still captured', () async {
+      final result = await runner.run(_echo, ['still here']);
+      expect(result.stdout.trim(), 'still here');
     });
   });
 

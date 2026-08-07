@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -71,11 +72,19 @@ class ProcessRunner {
   ///
   /// [environment] is an additive overlay on the parent environment. Its keys
   /// are logged in verbose mode; its values never are.
+  ///
+  /// [streamOutput] writes the child's output through as it arrives whatever
+  /// the verbosity — for `winbridge run`, where the child's stdout *is* the
+  /// point rather than diagnostics about it. [captureOutput] can then be
+  /// turned off so a long-running app's output is not also accumulated in
+  /// memory for a [RunResult] nobody reads.
   Future<RunResult> run(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String> environment = const {},
+    bool streamOutput = false,
+    bool captureOutput = true,
   }) async {
     if (!p.isAbsolute(executable)) {
       throw ArgumentError.value(
@@ -122,11 +131,28 @@ class ProcessRunner {
 
     final out = StringBuffer();
     final err = StringBuffer();
-    await Future.wait([
-      _collect(process.stdout, out, stderr: false),
-      _collect(process.stderr, err, stderr: true),
-    ]);
+    final collectors = [
+      _collect(process.stdout, out,
+          stderr: false, stream: streamOutput, capture: captureOutput),
+      _collect(process.stderr, err,
+          stderr: true, stream: streamOutput, capture: captureOutput),
+    ];
+
+    // The process first, its streams second. A child that leaves background
+    // processes holding the same pipes — Wine's wineserver does exactly this,
+    // and outlives the app it launched — never closes them, so waiting on the
+    // streams before the exit code would hang forever on a program that has
+    // already finished. After it exits, whatever is still in flight gets a
+    // moment to arrive and then the readers are cut loose.
     final code = await process.exitCode;
+    try {
+      await Future.wait([for (final c in collectors) c.done])
+          .timeout(_drainGrace);
+    } on TimeoutException {
+      for (final collector in collectors) {
+        await collector.cancel();
+      }
+    }
     final duration = DateTime.now().difference(started);
 
     final result = RunResult(
@@ -167,27 +193,80 @@ class ProcessRunner {
     return result;
   }
 
-  /// Captures the stream verbatim while echoing complete lines in verbose
-  /// mode. The capture is byte-exact — no trailing newline is invented — so a
+  /// Captures the stream verbatim while echoing complete lines as they arrive.
+  /// The capture is byte-exact — no trailing newline is invented — so a
   /// toolchain can trust output it parses for a version string or a path.
-  Future<void> _collect(
-    Stream<List<int>> stream,
+  ///
+  /// [stream] forces the echo on for a child whose output is the point;
+  /// otherwise it is verbose-only. [capture] can be turned off independently so
+  /// a long-lived child does not accumulate its whole output in memory.
+  _Collector _collect(
+    Stream<List<int>> source,
     StringBuffer buffer, {
     required bool stderr,
-  }) async {
+    bool stream = false,
+    bool capture = true,
+  }) {
+    final echo = stream || _output.verbose;
+    void write(String line) => stream
+        ? _output.app(line, stderr: stderr)
+        : _output.trace(line, stderr: stderr);
+
+    final finished = Completer<void>();
     var pending = '';
-    await for (final chunk
-        in stream.transform(const Utf8Decoder(allowMalformed: true))) {
-      buffer.write(chunk);
-      if (!_output.verbose) continue;
-      pending += chunk;
-      final lastBreak = pending.lastIndexOf('\n');
-      if (lastBreak < 0) continue;
-      for (final line in pending.substring(0, lastBreak).split('\n')) {
-        _output.trace(line, stderr: stderr);
-      }
-      pending = pending.substring(lastBreak + 1);
+
+    void flush() {
+      if (pending.isEmpty) return;
+      write(pending);
+      pending = '';
     }
-    if (pending.isNotEmpty) _output.trace(pending, stderr: stderr);
+
+    final subscription =
+        source.transform(const Utf8Decoder(allowMalformed: true)).listen(
+      (chunk) {
+        if (capture) buffer.write(chunk);
+        if (!echo) return;
+        pending += chunk;
+        final lastBreak = pending.lastIndexOf('\n');
+        if (lastBreak < 0) return;
+        for (final line in pending.substring(0, lastBreak).split('\n')) {
+          write(line);
+        }
+        pending = pending.substring(lastBreak + 1);
+      },
+      onDone: () {
+        flush();
+        if (!finished.isCompleted) finished.complete();
+      },
+      onError: (Object _) {
+        flush();
+        if (!finished.isCompleted) finished.complete();
+      },
+      cancelOnError: false,
+    );
+
+    return _Collector(finished.future, () async {
+      await subscription.cancel();
+      flush();
+      if (!finished.isCompleted) finished.complete();
+    });
   }
+}
+
+/// How long output already in flight gets to arrive after the process exits,
+/// before its readers are abandoned.
+///
+/// Generous for its actual job: once the child has exited, everything it wrote
+/// is already sitting in the pipe buffer and is read in a turn or two of the
+/// event loop. This only elapses in full when something *else* is holding the
+/// pipe open — a lingering `wineserver` — and it is charged to every
+/// `winbridge run`, so it stays short enough not to be felt.
+const _drainGrace = Duration(milliseconds: 500);
+
+/// A running stream reader that can be waited on or given up on.
+class _Collector {
+  const _Collector(this.done, this.cancel);
+
+  final Future<void> done;
+  final Future<void> Function() cancel;
 }

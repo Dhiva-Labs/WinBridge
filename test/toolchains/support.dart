@@ -3,12 +3,23 @@ import 'package:winbridge/winbridge.dart';
 /// One call captured by [RecordingProcessRunner], for asserting exact argv
 /// and environment overlays without spawning anything.
 class RecordedRun {
-  RecordedRun(this.executable, this.arguments, this.environment, this.workingDirectory);
+  RecordedRun(
+    this.executable,
+    this.arguments,
+    this.environment,
+    this.workingDirectory, {
+    this.streamOutput = false,
+    this.captureOutput = true,
+  });
 
   final String executable;
   final List<String> arguments;
   final Map<String, String> environment;
   final String? workingDirectory;
+
+  /// Whether the caller asked for the child's output to go straight through.
+  final bool streamOutput;
+  final bool captureOutput;
 }
 
 /// A [ProcessRunner] that records every call instead of spawning a process.
@@ -33,8 +44,17 @@ class RecordingProcessRunner extends ProcessRunner {
     List<String> arguments, {
     String? workingDirectory,
     Map<String, String> environment = const {},
+    bool streamOutput = false,
+    bool captureOutput = true,
   }) async {
-    final call = RecordedRun(executable, arguments, environment, workingDirectory);
+    final call = RecordedRun(
+      executable,
+      arguments,
+      environment,
+      workingDirectory,
+      streamOutput: streamOutput,
+      captureOutput: captureOutput,
+    );
     calls.add(call);
     return onRun?.call(call) ??
         RunResult(

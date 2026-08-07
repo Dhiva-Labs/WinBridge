@@ -1,5 +1,6 @@
 import '../core/toolchain.dart';
 import '../core/version.dart';
+import '../run/wine_runtime.dart';
 import 'command.dart';
 
 /// Reports what WinBridge can and cannot build on this machine.
@@ -32,6 +33,8 @@ class DoctorCommand extends WinBridgeCommand {
       output.info('  ${entry.directory}  [${entry.source.label}]');
     }
     output.blank();
+
+    _reportRunRuntime();
 
     output.info('Toolchains');
     if (context.registry.isEmpty) {
@@ -69,6 +72,33 @@ class DoctorCommand extends WinBridgeCommand {
       return 1;
     }
     return 0;
+  }
+
+  /// The Wine runtime behind `winbridge run`. Optional by design — it is never
+  /// needed to *build*, and `run` installs it on first use — so a missing one
+  /// is reported without failing the command.
+  void _reportRunRuntime() {
+    final output = context.output;
+    final runtime = WineRuntime(
+      config: context.config,
+      tools: context.tools,
+      runner: context.processes,
+      output: output,
+    );
+
+    output.info('Runtime for `winbridge run`');
+    final resolved = runtime.resolve();
+    if (resolved == null) {
+      output.info('  absent   wine          ${pinnedWineBuild.name}, installed '
+          'automatically on first `winbridge run` (optional)');
+      final target = runtime.managedDirectory;
+      if (target != null) output.detail('           would install into $target');
+    } else {
+      output.info('  ok       wine          ${resolved.binary}');
+      output.detail('           via ${resolved.source.label}'
+          '${resolved.isVerified ? ', checksum verified' : ''}');
+    }
+    output.blank();
   }
 
   String _label(ToolRequirement requirement) =>

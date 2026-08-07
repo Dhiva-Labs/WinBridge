@@ -15,6 +15,7 @@ import 'build_command.dart';
 import 'context.dart';
 import 'detect_command.dart';
 import 'doctor_command.dart';
+import 'run_command.dart';
 import 'toolchain_setup.dart';
 
 /// Exit codes: 0 success, 1 build or tool failure, 2 usage error.
@@ -47,6 +48,7 @@ class WinBridgeRunner extends CommandRunner<int> {
     addCommand(BuildCommand());
     addCommand(DetectCommand());
     addCommand(DoctorCommand());
+    addCommand(RunCommand());
     addCommand(VmCommand());
   }
 

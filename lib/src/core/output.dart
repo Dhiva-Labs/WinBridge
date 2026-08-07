@@ -70,6 +70,13 @@ class Output {
     stderr ? _writeErr(line) : _writeOut(line);
   }
 
+  /// Output belonging to a program WinBridge ran for the user, written
+  /// unchanged and never suppressed. This is the app talking, not WinBridge —
+  /// hiding it behind `--verbose` would hide the thing the user asked for.
+  /// Distinct from [trace], which is WinBridge's own commentary on the run.
+  void app(String line, {bool stderr = false}) =>
+      stderr ? _writeErr(line) : _writeOut(line);
+
   void warn(String message) => _writeErr('warning: $message');
 
   void error(String message) => _writeErr('error: $message');

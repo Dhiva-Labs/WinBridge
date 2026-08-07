@@ -115,14 +115,35 @@ transport; no new remote input reaches a shell unvalidated.
 **Gates:** signed sample installer built end-to-end in CI; signing keys never
 touch argv or logs; downloads pinned to official origins with checksums.
 
-### M4 — run Windows apps: launcher MVP
+### M4 — run Windows apps: launcher MVP (first slice shipped)
 
-- Bundled Wine-GE runtime; one isolated prefix per app; DXVK installed
-  automatically; `.desktop` entries so installed apps appear in the launcher;
-  uninstall = delete the prefix.
+**Shipped — `winbridge run <app.exe>`:**
+
+- Managed Wine runtime under `~/.cache/winbridge/runtimes/`, pinned to an exact
+  [Kron4ek/Wine-Builds](https://github.com/Kron4ek/Wine-Builds) release and
+  installed on first use. No system Wine, no root, nothing for the user to
+  configure or know about. `WINBRIDGE_WINE` overrides it; a system `wine` is
+  used when one is already there.
+- One isolated prefix per app under `~/.local/share/winbridge/prefixes/<app>`,
+  named from the executable, `--prefix` to override and `--list-prefixes` to
+  see them. Uninstalling an app is deleting its directory.
+- PE32+ check before launch, the app's own output streamed live, and the app's
+  exit code returned as the command's own.
+
+See `docs/running.md`.
+
+**Still outstanding in M4:**
+
+- **DXVK** installed automatically — D3D9/10/11 over Vulkan, for 3D apps that
+  Wine's OpenGL translation handles poorly. The next slice.
+- **`.desktop` entries**, so installed apps appear in the desktop launcher
+  rather than only under `winbridge run`.
+- **winetricks**, for apps that need extra runtimes (a particular .NET, a VC++
+  redistributable) inside their prefix.
 
 **Gates:** prefix isolation tests; no writes outside prefix and config dirs;
-runtime download checksummed.
+runtime download checksummed — verified *before* the archive is unpacked, and a
+runtime without a verification stamp is never run.
 
 ### M5 — compatibility recipes and VM fallback for running apps
 
