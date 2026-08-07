@@ -14,8 +14,16 @@ the roadmap; see `PLAN.md`.
 
 ## Install
 
-Grab the latest binary from the
-[releases page](https://github.com/Dhiva-Labs/WinBridge/releases):
+From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases) —
+on Debian/Ubuntu:
+
+```sh
+curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.1.0/winbridge_0.1.0-1_amd64.deb
+sudo apt install ./winbridge_0.1.0-1_amd64.deb
+winbridge doctor
+```
+
+or on any Linux x86-64, no root needed:
 
 ```sh
 curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.1.0/winbridge-0.1.0-linux-x64.tar.gz
