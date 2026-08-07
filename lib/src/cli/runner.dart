@@ -11,11 +11,14 @@ import '../core/output.dart';
 import '../core/registry.dart';
 import '../core/version.dart';
 import '../desktop/desktop.dart';
+import '../recipes/recipes.dart';
+import '../report/report.dart';
 import '../vm/vm.dart';
 import 'build_command.dart';
 import 'context.dart';
 import 'detect_command.dart';
 import 'doctor_command.dart';
+import 'package_command.dart';
 import 'prefix_command.dart';
 import 'run_command.dart';
 import 'toolchain_setup.dart';
@@ -51,7 +54,10 @@ class WinBridgeRunner extends CommandRunner<int> {
     addCommand(DesktopCommand());
     addCommand(DetectCommand());
     addCommand(DoctorCommand());
+    addCommand(PackageCommand());
     addCommand(PrefixCommand());
+    addCommand(RecipeCommand());
+    addCommand(ReportCommand());
     addCommand(RunCommand());
     addCommand(VmCommand());
   }

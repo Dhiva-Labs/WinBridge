@@ -40,7 +40,7 @@ KVM Windows VM.
 
 ## Milestones
 
-### M1 — cross-compile toolbox (current)
+### M1 — cross-compile toolbox (shipped)
 
 The `winbridge` CLI with `build`, `detect`, and `doctor` commands.
 
@@ -61,7 +61,7 @@ Zig toolchains; full language matrix in CI.
 **Security gate:** argv-only process execution audited; no shell usage;
 fixture and artifact paths validated; `dart analyze` clean.
 
-### M2 — Flutter VM build path (current)
+### M2 — Flutter VM build path (shipped; awaiting first real-VM validation)
 
 `flutter build windows` requires Windows and Visual Studio. WinBridge drives a
 headless KVM Windows VM as a build machine so the developer never leaves Linux.
@@ -79,7 +79,7 @@ documented and verified against a real VM before the milestone closes.
 only; artifact extraction refuses absolute paths and `..` traversal; VM
 treated as semi-trusted (its outputs are data, never executed on the host).
 
-### M2.5 — device bridge (current)
+### M2.5 — device bridge (shipped; VM walkthroughs await a real VM)
 
 Windows kernel drivers can never load into the Linux kernel, but the VM can
 host them and WinBridge can route devices and jobs to it.
@@ -103,7 +103,7 @@ a real VM before the milestone closes.
 reach any emitted configuration; print path reuses the validated SSH
 transport; no new remote input reaches a shell unvalidated.
 
-### M3 — MSVC ABI on Linux
+### M3 — MSVC ABI on Linux and installer packaging (shipped)
 
 - `clang-cl` + `xwin` for MSVC-target C/C++ without Windows (and `cargo-xwin`
   for Rust's MSVC target).
@@ -115,7 +115,7 @@ transport; no new remote input reaches a shell unvalidated.
 **Gates:** signed sample installer built end-to-end in CI; signing keys never
 touch argv or logs; downloads pinned to official origins with checksums.
 
-### M4 — run Windows apps: launcher MVP (mostly shipped)
+### M4 — run Windows apps: launcher MVP (shipped)
 
 **Shipped — `winbridge run <app.exe>`:**
 
@@ -160,7 +160,7 @@ file is made executable, and an asset without a verification stamp is never
 used. The one trust boundary WinBridge cannot extend is what winetricks verbs
 themselves download; that is documented where users will meet it.
 
-### M5 — compatibility recipes and VM fallback for running apps
+### M5 — compatibility recipes and VM fallback for running apps (shipped; RemoteApp awaits a real VM)
 
 - Recipe database keyed by installer fingerprint (winetricks verbs, DLL
   overrides), community-contributable.
@@ -169,7 +169,7 @@ themselves download; that is documented where users will meet it.
 **Gates:** recipes are declarative data, never executable code; RDP
 credentials stored with 0600 permissions outside the repo.
 
-### M6 — distribution and community
+### M6 — distribution and community (shipped; flatpak build validation pending)
 
 - Flatpak first (Wine under strict Snap confinement is not viable), then PPA.
 - GPU/Vulkan preflight checks; opt-in anonymous success reports feeding
