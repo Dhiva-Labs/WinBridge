@@ -189,11 +189,23 @@ class VmConfig {
 
   static void _checkWindowsPath(String? value, String field, List<String> errors) {
     if (value == null) return;
-    if (!_windowsPathPattern.hasMatch(value) || value.contains('..')) {
+    if (!isValidWindowsPath(value)) {
       errors.add('"$field" (${_display(value)}) must match '
           '${_windowsPathPattern.pattern} and must not contain ".."');
     }
   }
+
+  /// The charset [remoteWorkspace] and [flutterPath] are themselves validated
+  /// against: letters, digits, `:/_.-`, and no `..` segment. Exposed so other
+  /// features that embed a Windows path in a remote command line — the
+  /// RemoteApp fallback's target executable, for one — validate against
+  /// exactly this rule instead of restating it. See `docs/remoteapp.md`.
+  static bool isValidWindowsPath(String value) =>
+      _windowsPathPattern.hasMatch(value) && !value.contains('..');
+
+  /// Human-readable form of the same charset, for error messages built
+  /// outside this file.
+  static String get windowsPathCharsetDescription => _windowsPathPattern.pattern;
 
   static String _display(String value) => value.length > 60
       ? '${value.substring(0, 60)}...'

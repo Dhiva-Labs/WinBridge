@@ -12,6 +12,8 @@
 library;
 
 export 'flutter_vm_toolchain.dart';
+export 'remote_app.dart';
+export 'remote_app_command.dart' show VmAppCommand;
 export 'remote_command.dart';
 export 'usb.dart';
 export 'vm_command.dart';

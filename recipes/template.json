@@ -1,0 +1,13 @@
+{
+  "id": "template-example",
+  "match": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "apply": {
+    "tricks": ["corefonts", "vcrun2019"],
+    "dllOverrides": { "d3d9": "n" },
+    "dxvk": false
+  },
+  "notes": "TEMPLATE — not a real recipe. The sha256 above is a placeholder (64 zeros), which is not a value sha256sum ever actually produces, so this file cannot accidentally match a real installer. To make a real recipe: copy this file, run `winbridge recipe show path/to/the/installer.exe` to get the real sha256, replace the placeholder with it, set apply.tricks/dllOverrides/dxvk to what the app actually needs, rename the id to something specific to that app and version, and update this notes field to say what you tested. See README.md in this directory for the full format, including the fileName+sizeBytes fallback match shape for installers you have not hashed yet.",
+  "source": "https://github.com/dhivalabs/winbridge/blob/main/recipes/README.md"
+}

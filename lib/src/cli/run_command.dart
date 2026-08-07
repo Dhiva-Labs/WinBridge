@@ -2,6 +2,8 @@ import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/errors.dart';
+import '../pe/pe_header.dart';
+import '../recipes/recipe_apply.dart' show recipeDllOverrides;
 import '../run/dxvk.dart';
 import '../run/prefix.dart';
 import '../run/wine_launcher.dart';
@@ -71,7 +73,8 @@ class RunCommand extends WinBridgeCommand {
     // the app's own argv, passed through untouched.
     final appArguments = positional.skip(1).toList();
 
-    WineLauncher.checkExecutable(executable);
+    final machine = WineLauncher.checkExecutable(executable);
+    output.detail('image   ${describeMachine(machine)}');
 
     final requestedPrefix = results.option('prefix');
     final prefix = requestedPrefix == null
@@ -95,6 +98,7 @@ class RunCommand extends WinBridgeCommand {
 
     final useDxvk = await _settleDxvk(results, prefix);
 
+    final envOverrides = context.config.environment['WINEDLLOVERRIDES'];
     final code = await WineLauncher(
       runner: context.processes,
       output: output,
@@ -104,11 +108,11 @@ class RunCommand extends WinBridgeCommand {
       prefix: prefix,
       arguments: appArguments,
       verbose: output.verbose,
-      dllOverrides: useDxvk
-          ? dxvkDllOverrides(
-              existing: context.config.environment['WINEDLLOVERRIDES'],
-            )
-          : null,
+      dllOverrides: recipeDllOverrides(
+        prefix,
+        existing:
+            useDxvk ? dxvkDllOverrides(existing: envOverrides) : envOverrides,
+      ),
     ));
 
     output.detail('app exited with $code');

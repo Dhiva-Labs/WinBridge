@@ -1,6 +1,7 @@
 import 'package:winbridge/src/cli/command.dart';
 import 'package:winbridge/winbridge.dart';
 
+import 'remote_app_command.dart';
 import 'remote_command.dart';
 import 'usb.dart';
 import 'vm_config.dart';
@@ -10,13 +11,15 @@ const _acceptNewHelp = 'Trust a VM host key seen for the first time. Never '
     'relaxes checking for a host key that changed — only ssh itself, run '
     'directly, can do that.';
 
-/// `winbridge vm` — connectivity and setup checks for the build VM. Has no
-/// action of its own; `status`, `doctor` and `usb` are its subcommands.
+/// `winbridge vm` — connectivity and setup checks for the build VM, plus the
+/// RemoteApp fallback for apps Wine cannot run. Has no action of its own;
+/// `status`, `doctor`, `usb` and `app` are its subcommands.
 class VmCommand extends WinBridgeCommand {
   VmCommand() {
     addSubcommand(VmStatusCommand());
     addSubcommand(VmDoctorCommand());
     addSubcommand(VmUsbCommand());
+    addSubcommand(VmAppCommand());
   }
 
   @override

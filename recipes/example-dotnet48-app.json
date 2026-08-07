@@ -1,0 +1,14 @@
+{
+  "id": "example-dotnet48-app",
+  "match": {
+    "fileName": "Setup.exe",
+    "sizeBytes": 52428800
+  },
+  "apply": {
+    "tricks": ["dotnet48", "corefonts", "vcrun2015"],
+    "dllOverrides": {},
+    "dxvk": false
+  },
+  "notes": "ILLUSTRATION ONLY, not a verified recipe for any real application. This exists to show the fileName+sizeBytes fallback match shape (see README.md) for a common category of app: a .NET Framework 4.8 desktop installer literally named Setup.exe, which is an extremely generic file name — plenty of unrelated installers share it. sizeBytes (50 MiB here) is a made-up round number, not measured from a real file. Do not rely on this recipe matching anything real; if you have an actual installer named Setup.exe, run `winbridge recipe show` on it and write a sha256-keyed recipe instead, which is exact instead of merely plausible. WinBridge does not fabricate hashes of real software as if verified, and this file does not either.",
+  "source": "https://appdb.winehq.org/"
+}
