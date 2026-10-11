@@ -14,6 +14,7 @@ than implying more automation exists than does.
 | GitHub release `.deb` | `winbridge_<ver>-1_amd64.deb` — installs to `/usr/bin/winbridge` | Same workflow, same tag push | Automated |
 | `dhiva-apps` PPA | Ubuntu Noble source package, built by Launchpad's own build farm from what `dput` uploads | `debian/` + `scripts/release/build-ppa-source.sh`, run by hand | Source package builds and installs correctly locally (see below); **upload is a manual, deliberate step — nothing in this repository ever runs `dput`** |
 | Flatpak | `io.github.dhiva_labs.WinBridge`, from `packaging/flatpak/` | `flatpak-builder`, run by hand (or future CI) | **Manifest only — untested on this machine, no `flatpak-builder` installed here.** See `packaging/flatpak/README.md` |
+| Snap | `winbridge`, classic confinement, from `snap/snapcraft.yaml` | `snapcraft pack --use-lxd`, run by hand | Built and tested locally; **not yet registered or uploaded**, and classic needs a Snap Store forum approval first. See `packaging/SNAP.md` |
 
 `winbridge doctor`/`winbridge report` and everything else the CLI does are
 identical regardless of which channel installed it; nothing about the binary
