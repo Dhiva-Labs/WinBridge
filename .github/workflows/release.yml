@@ -8,18 +8,29 @@ on:
     tags:
       - 'v*'
 
+# Read-only by default. Only the publish job, below, is granted more.
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  # One build per architecture, each on a machine of its own CPU. Nothing is
+  # published from here: the publish job only runs once every one of these has
+  # passed, so a failure on either architecture means no release at all.
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    # Scoped to this one job, not the workflow: creating a GitHub release and
-    # uploading its assets is the only thing in this repo that ever needs
-    # write access to the repository. ci.yml stays read-only end to end;
-    # keeping the grant at job level here (rather than promoting the whole
-    # workflow to write) means a step added to a *different* job later, in
-    # either file, does not inherit it by accident.
-    permissions:
-      contents: write
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -72,72 +83,67 @@ jobs:
             exit 1
           fi
 
-      - name: Assemble the tarball
+      # Tarball and .deb for this runner's architecture, named and filled in by
+      # the script CI runs on every pull request. It refuses to package a
+      # binary that is not for the CPU it is running on.
+      - name: Assemble the tarball and .deb
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          stage="winbridge-${VERSION}-linux-x64"
-          mkdir -p "$stage"
-          install -m 0755 winbridge "$stage/winbridge"
-          install -m 0644 LICENSE "$stage/LICENSE"
-          install -m 0644 README.md "$stage/README.md"
-          tar -czf "${stage}.tar.gz" "$stage"
+        run: scripts/release/package-linux.sh "$VERSION" ./winbridge dist
 
-      # Mirrors the structure of the winbridge_0.3.0-1_amd64.deb already on
-      # the releases page: /usr/bin/winbridge, /usr/share/doc/winbridge/
-      # copyright, and a control file carrying the same Depends/Recommends
-      # as debian/control (the PPA package) — the two are built by different
-      # means (this is a hand-assembled `dpkg-deb`, not a `dh` build via
-      # debian/rules) but must describe the same package.
-      - name: Build the .deb
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          pkg="winbridge_${VERSION}-1_amd64"
-          mkdir -p "$pkg/usr/bin" "$pkg/usr/share/doc/winbridge" "$pkg/DEBIAN"
-          install -m 0755 winbridge "$pkg/usr/bin/winbridge"
-          install -m 0644 debian/copyright "$pkg/usr/share/doc/winbridge/copyright"
-          gzip -9n -c debian/changelog > "$pkg/usr/share/doc/winbridge/changelog.gz"
-          cat > "$pkg/DEBIAN/control" <<EOF
-          Package: winbridge
-          Version: ${VERSION}-1
-          Section: devel
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Dhiva Labs <dhivakar1010@gmail.com>
-          Homepage: https://github.com/Dhiva-Labs/WinBridge
-          Depends: libc6
-          Recommends: openssh-client, rsync, curl, xz-utils
-          Description: build and run Windows apps from Linux, without leaving Linux
-           WinBridge cross-compiles Windows binaries from Go, Rust, .NET, C/C++ and
-           Flutter projects and checks every artifact for a real Windows PE32+ header
-           before calling a build a success. It also runs existing Windows programs
-           through a managed Wine runtime it downloads and verifies itself, with an
-           isolated prefix per app and optional DXVK for Direct3D-over-Vulkan
-           rendering. No system Wine, no root, nothing to configure by hand.
-          EOF
-          dpkg-deb --build --root-owner-group "$pkg"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-${{ matrix.arch }}-packages
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
 
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Scoped to this one job, not the workflow: creating a GitHub release and
+    # uploading its assets is the only thing in this repo that ever needs
+    # write access to the repository. ci.yml stays read-only end to end;
+    # keeping the grant at job level here (rather than promoting the whole
+    # workflow to write) means a step added to a *different* job later, in
+    # either file, does not inherit it by accident.
+    permissions:
+      contents: write
+    steps:
+      # Only for scripts/release/checksums.sh; nothing from the tag is built here.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: linux-*-packages
+          merge-multiple: true
+          path: dist
+
+      # One SHA256SUMS over the x64 and arm64 tarballs and .debs. The script
+      # fails if any of the four is missing, so a release can never go out
+      # carrying only one architecture.
       - name: Checksums
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
         run: |
-          sha256sum \
-            "winbridge-${VERSION}-linux-x64.tar.gz" \
-            "winbridge_${VERSION}-1_amd64.deb" \
-            > SHA256SUMS
-          cat SHA256SUMS
+          ls -l dist
+          scripts/release/checksums.sh "${TAG#v}" dist
 
       # `gh` ships preinstalled on GitHub-hosted runners, so this needs no
       # extra action (and nothing extra to pin) beyond the token below.
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            "winbridge-${VERSION}-linux-x64.tar.gz" \
-            "winbridge_${VERSION}-1_amd64.deb" \
-            SHA256SUMS \
-            --title "WinBridge ${VERSION}" \
+          version="${TAG#v}"
+          gh release create "$TAG" \
+            "dist/winbridge-${version}-linux-x64.tar.gz" \
+            "dist/winbridge_${version}-1_amd64.deb" \
+            "dist/winbridge-${version}-linux-arm64.tar.gz" \
+            "dist/winbridge_${version}-1_arm64.deb" \
+            dist/SHA256SUMS \
+            --title "WinBridge ${version}" \
             --generate-notes

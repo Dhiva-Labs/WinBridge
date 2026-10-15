@@ -39,9 +39,14 @@ contact: dhivakar1010@gmail.com
 grade: stable
 confinement: classic
 base: core22
+# Native builds only: each architecture is built on a machine of its own CPU
+# (no cross-compiling), which is also what lets the override-build below pick
+# the Dart SDK for the architecture it is running on.
 architectures:
   - build-on: amd64
     build-for: amd64
+  - build-on: arm64
+    build-for: arm64
 
 # The classic linter wants the ELF interpreter and rpath rewritten to the
 # base snap's libc. That rewrite (patchelf) corrupts `dart compile exe`
@@ -84,10 +89,24 @@ parts:
       # (pubspec.yaml needs ^3.8.0; the stable channel at release time was
       # 3.12.x). Built inside this core22 (Ubuntu 22.04, glibc 2.35) container
       # on purpose: the resulting executable then runs on any host with a
-      # glibc at least that new.
+      # glibc at least that new. The build is native, so the SDK is the one for
+      # the architecture of the container itself.
       DART_VERSION=3.12.2
-      DART_SHA256=28e47b44cf075f36771046c068bb0d174201cf9c7608744aed1cc23204299c2d
-      DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-linux-x64-release.zip"
+      case "$(dpkg --print-architecture)" in
+        amd64)
+          DART_ARCH=x64
+          DART_SHA256=28e47b44cf075f36771046c068bb0d174201cf9c7608744aed1cc23204299c2d
+          ;;
+        arm64)
+          DART_ARCH=arm64
+          DART_SHA256=f82c83ece7d168047550dfd4a664e4071ac7c488bddb72dc43102c22d7e0b518
+          ;;
+        *)
+          echo "no pinned Dart SDK for $(dpkg --print-architecture)" >&2
+          exit 1
+          ;;
+      esac
+      DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-linux-${DART_ARCH}-release.zip"
 
       sdk_dir="$CRAFT_PART_BUILD/.toolchain"
       rm -rf "$sdk_dir"
