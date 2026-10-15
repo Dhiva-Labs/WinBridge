@@ -186,6 +186,38 @@ void main() {
       expect(check.looksAvailable, isTrue);
     });
 
+    test('looks for the loader under the host CPU\'s multiarch directory', () {
+      final x64 = VulkanCheck.loaderDirectories(HostArch.x64);
+      final arm64 = VulkanCheck.loaderDirectories(HostArch.arm64);
+
+      expect(x64, contains('/usr/lib/x86_64-linux-gnu'));
+      expect(x64, isNot(contains('/usr/lib/aarch64-linux-gnu')));
+      expect(arm64, contains('/usr/lib/aarch64-linux-gnu'));
+      expect(arm64, contains('/lib/aarch64-linux-gnu'));
+      expect(arm64, isNot(contains('/usr/lib/x86_64-linux-gnu')));
+
+      // The architecture-neutral directories are searched on both.
+      for (final dirs in [x64, arm64]) {
+        expect(dirs, containsAll(['/usr/lib64', '/usr/lib', '/usr/local/lib']));
+      }
+    });
+
+    test('the x64 search order is exactly what it was before arm64', () {
+      expect(VulkanCheck.loaderDirectories(HostArch.x64), [
+        '/usr/lib/x86_64-linux-gnu',
+        '/usr/lib64',
+        '/usr/lib',
+        '/lib/x86_64-linux-gnu',
+        '/usr/local/lib',
+      ]);
+    });
+
+    test('a CPU with no builds searches both, rather than guessing', () {
+      final dirs = VulkanCheck.loaderDirectories(null);
+      expect(dirs, contains('/usr/lib/x86_64-linux-gnu'));
+      expect(dirs, contains('/usr/lib/aarch64-linux-gnu'));
+    });
+
     test('the advice names no GPU vendor', () {
       final advice = VulkanCheck.missingAdvice.toLowerCase();
       for (final vendor in ['nvidia', 'amd', 'intel', 'radeon', 'geforce']) {

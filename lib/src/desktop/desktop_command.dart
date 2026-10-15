@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:winbridge/src/cli/command.dart';
+import 'package:winbridge/src/run/wine_runtime.dart';
 import 'package:winbridge/winbridge.dart';
 
 import 'desktop_entry.dart';
@@ -84,6 +85,17 @@ class DesktopAddCommand extends WinBridgeCommand {
     final path = store.write(entry);
     output.info('Added ${entry.name} -> $path');
     output.detail('exec: winbridge run --prefix ${entry.prefix} $executable');
+
+    // The entry is still valid, so this warns rather than refuses: the user
+    // may export the override in their session later. What it must not do is
+    // leave them to discover at launch time that a click does nothing.
+    if (!pinnedWineRunsOn(context.config.hostArch) &&
+        context.config.wineOverride == null) {
+      output.warn("this machine cannot run WinBridge's Wine (it is x86-64 "
+          'only), so launching ${entry.name} will fail until '
+          '${WinBridgeConfig.wineVariable} points at a Wine that runs x86-64 '
+          'Windows programs; see docs/running.md');
+    }
 
     await refreshDesktopDatabase(
       tools: context.tools,

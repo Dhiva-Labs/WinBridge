@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'host_arch.dart';
+
 /// Where WinBridge looks for things, and what it calls the things it makes.
 ///
 /// This is declarative data only: names, directories, defaults. It never
@@ -9,8 +11,17 @@ import 'package:path/path.dart' as p;
 /// keep that property — no hooks, no scripts, no argv fragments that a project
 /// can smuggle into a build.
 class WinBridgeConfig {
-  WinBridgeConfig({Map<String, String>? environment})
-      : environment = Map.unmodifiable(environment ?? Platform.environment);
+  /// [hostArch] is the CPU architecture of this machine. It defaults to the
+  /// one the process is running on; tests pass it explicitly so the arm64 code
+  /// paths run on an x64 CI leg and the x64 ones on an arm64 leg.
+  WinBridgeConfig({Map<String, String>? environment, HostArch? hostArch})
+      : environment = Map.unmodifiable(environment ?? Platform.environment),
+        hostArch = hostArch ?? HostArch.detect();
+
+  /// The architecture of the machine WinBridge is running on, or null on a CPU
+  /// it has no builds for. Everything that downloads a host binary (compilers,
+  /// the xwin tool) or decides whether the pinned Wine can run keys off this.
+  final HostArch? hostArch;
 
   /// Points at a directory of bootstrapped toolchains laid out the same way
   /// as the managed cache: `<dir>/<toolchain>/bin/<executable>`.

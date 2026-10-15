@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../core/config.dart';
 import '../core/errors.dart';
+import '../core/host_arch.dart';
 import '../core/output.dart';
 import '../core/process_runner.dart';
 import '../core/tool_resolver.dart';
@@ -30,6 +31,50 @@ const pinnedWineBuild = PinnedAsset(
   sha256: '707956fa1574ad1660c4d7f2cfd9c024e0f437ad0a2d501a53b717adb1288222',
   archiveTopLevel: 'wine-11.14-amd64-wow64',
 );
+
+/// Whether the pinned Wine build can execute on a machine of [arch].
+///
+/// It is an x86-64 program, so only an x64 host can start it. There is no
+/// arm64 build of this pin: Kron4ek's Wine-Builds publish amd64 and x86 only,
+/// and the arm64 options that do run x86-64 Windows programs (Hangover) are
+/// per-distribution package bundles, not a portable archive WinBridge could
+/// pin by checksum and unpack without root. So on any other host WinBridge
+/// downloads nothing, rather than fetching a binary that cannot start.
+bool pinnedWineRunsOn(HostArch? arch) => arch == HostArch.x64;
+
+/// The failure `run`, `package`, `prefix tricks` and `recipe apply` raise on a
+/// host the pinned Wine cannot run on, before anything is downloaded or any
+/// prefix is created.
+///
+/// Honest about three things: what is wrong, what was deliberately not done
+/// (no download, no PATH `wine` guessing), and the one way to proceed.
+BuildFailure wineUnavailableFailure(HostArch? arch) {
+  final machine = arch == null
+      ? 'this CPU is neither x86-64 nor arm64'
+      : 'this is an ${arch.slug} (${arch.machine}) machine';
+  return BuildFailure(
+    "cannot run Windows programs here: WinBridge's Wine is x86-64 only, and "
+    '$machine',
+    details: [
+      'The managed Wine build (${pinnedWineBuild.name}) is an x86-64 program, '
+          'so it cannot start on this CPU, and WinBridge has no pinned, '
+          'checksum-verified Wine for this CPU that runs x86-64 Windows '
+          'programs. Nothing was downloaded and no prefix was created.',
+      '',
+      'A `wine` found on PATH is not used automatically either: a Wine built '
+          'natively for this CPU cannot run the x86-64 programs '
+          '`winbridge build` produces without an x86-64 emulation layer.',
+      '',
+      'If you have a Wine that does run x86-64 Windows programs on this '
+          'machine (a Hangover build, for example), set '
+          '${WinBridgeConfig.wineVariable} to its `wine` binary and WinBridge '
+          'will use it as given, without verifying it.',
+      '',
+      'Everything that does not need Wine works here: `winbridge build`, '
+          '`detect`, `doctor`, `vm` and `report`.',
+    ].join('\n'),
+  );
+}
 
 /// The loader `run` invokes, inside a runtime directory. The wow64 build ships
 /// a single `bin/wine` that handles both 32- and 64-bit Windows binaries;
@@ -91,6 +136,11 @@ class ResolvedWine {
 ///  2. The managed runtime, but only if its install stamp records the checksum
 ///     this build is pinned to.
 ///  3. `wine` on the search path, via [ToolResolver].
+///
+/// Steps 2 and 3 apply only where the pinned build can run ([pinnedWineRunsOn],
+/// x86-64 hosts). On any other host only step 1 can succeed: there is no build
+/// to install, and a `wine` on PATH is an arm64 program that cannot run what
+/// WinBridge builds, so using it would trade a clear message for loader noise.
 class WineRuntime {
   WineRuntime({
     required this.config,
@@ -118,6 +168,10 @@ class WineRuntime {
 
   String? get managedDirectory => _cache.directoryFor(build);
 
+  /// Whether this host can run the pinned build, and so whether the managed
+  /// runtime and PATH lookup are on offer at all.
+  bool get managedBuildSupported => pinnedWineRunsOn(config.hostArch);
+
   /// The already-usable Wine, or null when nothing is installed yet.
   ResolvedWine? resolve() {
     if (config.wineOverride case final override?) {
@@ -129,6 +183,8 @@ class WineRuntime {
         details: override,
       );
     }
+
+    if (!managedBuildSupported) return null;
 
     final managed = managedDirectory;
     if (managed != null &&
@@ -152,6 +208,8 @@ class WineRuntime {
   Future<ResolvedWine> resolveOrInstall() async {
     final existing = resolve();
     if (existing != null) return existing;
+
+    if (!managedBuildSupported) throw wineUnavailableFailure(config.hostArch);
 
     final target = managedDirectory;
     if (target == null) {
@@ -178,6 +236,7 @@ class WineRuntime {
   /// Downloads, verifies and unpacks the pinned build. See [AssetCache.install]
   /// for the ordering guarantees.
   Future<void> install() async {
+    if (!managedBuildSupported) throw wineUnavailableFailure(config.hostArch);
     await _cache.install(build);
     final directory = managedDirectory;
     if (directory != null && !_isExecutableFile(wineBinaryIn(directory))) {

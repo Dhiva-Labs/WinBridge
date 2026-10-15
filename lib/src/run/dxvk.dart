@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../core/config.dart';
 import '../core/errors.dart';
+import '../core/host_arch.dart';
 import '../core/output.dart';
 import '../core/process_runner.dart';
 import '../core/tool_resolver.dart';
@@ -159,17 +160,28 @@ class VulkanCheck {
 
   static const _loaderNames = ['libvulkan.so.1', 'libvulkan.so'];
 
-  static const _loaderDirectories = [
-    '/usr/lib/x86_64-linux-gnu',
-    '/usr/lib64',
-    '/usr/lib',
-    '/lib/x86_64-linux-gnu',
-    '/usr/local/lib',
-  ];
+  /// Where a distribution puts the loader. Debian-style multiarch directories
+  /// are named for the CPU, so an arm64 machine keeps it under
+  /// `aarch64-linux-gnu`, not `x86_64-linux-gnu`. With no [arch] both are
+  /// searched, which is the right answer for a CPU WinBridge has no builds for.
+  static List<String> loaderDirectories(HostArch? arch) {
+    final triplets = switch (arch) {
+      HostArch.x64 => ['x86_64-linux-gnu'],
+      HostArch.arm64 => ['aarch64-linux-gnu'],
+      null => ['x86_64-linux-gnu', 'aarch64-linux-gnu'],
+    };
+    return [
+      for (final triplet in triplets) '/usr/lib/$triplet',
+      '/usr/lib64',
+      '/usr/lib',
+      for (final triplet in triplets) '/lib/$triplet',
+      '/usr/local/lib',
+    ];
+  }
 
-  static VulkanCheck detect(ToolResolver tools) {
+  static VulkanCheck detect(ToolResolver tools, {HostArch? arch}) {
     String? loader;
-    for (final directory in _loaderDirectories) {
+    for (final directory in loaderDirectories(arch)) {
       for (final name in _loaderNames) {
         final candidate = p.join(directory, name);
         if (FileSystemEntity.typeSync(candidate) !=

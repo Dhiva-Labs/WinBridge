@@ -8,6 +8,7 @@ export 'src/core/artifact.dart';
 export 'src/core/build.dart';
 export 'src/core/config.dart';
 export 'src/core/errors.dart';
+export 'src/core/host_arch.dart';
 export 'src/core/output.dart';
 export 'src/core/paths.dart';
 export 'src/core/process_runner.dart';

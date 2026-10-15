@@ -6,6 +6,7 @@ import 'package:winbridge/src/run/wine_runtime.dart';
 import 'package:winbridge/winbridge.dart';
 
 import '../support/fixtures.dart';
+import '../support/host.dart';
 import '../toolchains/support.dart';
 
 void main() {
@@ -17,18 +18,27 @@ void main() {
     pathDir = tempDir('path');
   });
 
-  WinBridgeConfig configWith({String? wineOverride}) =>
-      WinBridgeConfig(environment: {
-        'HOME': home,
-        'PATH': pathDir,
-        WinBridgeConfig.wineVariable: ?wineOverride,
-      });
+  // Pinned to x64 unless a test says otherwise: these tests describe how the
+  // x64 runtime resolves, and must mean the same thing on an arm64 CI runner.
+  WinBridgeConfig configWith({
+    String? wineOverride,
+    HostArch hostArch = HostArch.x64,
+  }) =>
+      WinBridgeConfig(
+        environment: {
+          'HOME': home,
+          'PATH': pathDir,
+          WinBridgeConfig.wineVariable: ?wineOverride,
+        },
+        hostArch: hostArch,
+      );
 
   WineRuntime runtimeWith({
     String? wineOverride,
     ProcessRunner? runner,
+    HostArch hostArch = HostArch.x64,
   }) {
-    final config = configWith(wineOverride: wineOverride);
+    final config = configWith(wineOverride: wineOverride, hostArch: hostArch);
     return WineRuntime(
       config: config,
       tools: ToolResolver(config: config),
@@ -243,6 +253,127 @@ void main() {
       expect(
         download.arguments.any((a) => a.contains('&&') || a.contains('|')),
         isFalse,
+      );
+    });
+  });
+
+  // The pinned Wine is an x86-64 program. On an arm64 host it cannot start, no
+  // arm64 build of it exists to pin, and a `wine` on PATH is a different CPU's
+  // Wine than the one that can run what WinBridge builds. So: nothing is
+  // downloaded or guessed, the one explicit escape hatch stays, and the
+  // failure comes before any prefix or download exists.
+  group('on an arm64 host', () {
+    WineRuntime arm64Runtime({String? wineOverride, ProcessRunner? runner}) =>
+        runtimeWith(
+          wineOverride: wineOverride,
+          runner: runner,
+          hostArch: HostArch.arm64,
+        );
+
+    test('the pinned build is x86-64 only', () {
+      expect(pinnedWineRunsOn(HostArch.x64), isTrue);
+      expect(pinnedWineRunsOn(HostArch.arm64), isFalse);
+      expect(pinnedWineRunsOn(null), isFalse);
+      expect(pinnedWineBuild.name, contains('amd64'));
+      expect(arm64Runtime().managedBuildSupported, isFalse);
+      expect(runtimeWith().managedBuildSupported, isTrue);
+    });
+
+    test('a verified managed runtime is not used', () {
+      installManaged(stampContents: validStamp());
+      expect(arm64Runtime().resolve(), isNull);
+    });
+
+    test('a wine on PATH is not guessed at', () {
+      writeExecutable(pathDir, 'wine');
+      expect(arm64Runtime().resolve(), isNull);
+    });
+
+    test('WINBRIDGE_WINE is still honoured, as given and unverified', () {
+      final own = writeExecutable(tempDir('own'), 'wine');
+      installManaged(stampContents: validStamp());
+      writeExecutable(pathDir, 'wine');
+
+      final resolved = arm64Runtime(wineOverride: own).resolve()!;
+      expect(resolved.binary, own);
+      expect(resolved.source, WineSource.override);
+      expect(resolved.isVerified, isFalse);
+    });
+
+    test('a bad WINBRIDGE_WINE is still a clean usage error', () {
+      final notExecutable = writeFile(p.join(tempDir('o'), 'wine'), 'text');
+      expect(
+        () => arm64Runtime(wineOverride: notExecutable).resolve(),
+        throwsA(isA<UsageFailure>()),
+      );
+    });
+
+    test('resolveOrInstall fails early, honestly, and downloads nothing',
+        () async {
+      final runner = RecordingProcessRunner();
+      final runtime = arm64Runtime(runner: runner);
+
+      await expectLater(
+        runtime.resolveOrInstall(),
+        throwsA(isA<BuildFailure>()
+            .having((e) => e.message, 'message', contains('x86-64'))
+            .having((e) => e.message, 'message', contains('arm64'))
+            .having((e) => e.details ?? '', 'details',
+                contains(WinBridgeConfig.wineVariable))
+            .having((e) => e.details ?? '', 'details',
+                contains('Nothing was downloaded'))),
+      );
+
+      expect(runner.calls, isEmpty, reason: 'no curl, no tar, nothing');
+      expect(Directory(runtime.managedDirectory!).existsSync(), isFalse);
+      expect(Directory(p.join(home, '.cache')).existsSync(), isFalse,
+          reason: 'not even a cache directory was created');
+    });
+
+    test('the message names the pinned build and what still works', () async {
+      Object? caught;
+      try {
+        await arm64Runtime().resolveOrInstall();
+      } on Object catch (error) {
+        caught = error;
+      }
+      final failure = caught! as BuildFailure;
+      expect(failure.details, contains(pinnedWineBuild.name));
+      expect(failure.details, contains('winbridge build'));
+      expect(failure.exitCode, 1);
+    });
+
+    test('install() cannot be used to sidestep the check', () async {
+      final runner = RecordingProcessRunner();
+      await expectLater(
+        arm64Runtime(runner: runner).install(),
+        throwsA(isA<BuildFailure>()),
+      );
+      expect(runner.calls, isEmpty);
+    });
+
+    test('resolveOrInstall still returns the override without complaint',
+        () async {
+      final own = writeExecutable(tempDir('own'), 'wine');
+      final resolved =
+          await arm64Runtime(wineOverride: own).resolveOrInstall();
+      expect(resolved.binary, own);
+    });
+
+    test('an unknown CPU is treated the same way, and says so', () async {
+      final config = UnknownCpuConfig(
+        environment: {'HOME': home, 'PATH': pathDir},
+      );
+      final runtime = WineRuntime(
+        config: config,
+        tools: ToolResolver(config: config),
+        runner: RecordingProcessRunner(),
+        output: silentOutput(),
+      );
+      await expectLater(
+        runtime.resolveOrInstall(),
+        throwsA(isA<BuildFailure>().having(
+            (e) => e.message, 'message', contains('neither x86-64 nor arm64'))),
       );
     });
   });

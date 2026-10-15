@@ -1,6 +1,8 @@
 import '../bootstrap/components.dart';
 import '../bootstrap/installer.dart';
+import '../core/config.dart';
 import '../core/errors.dart';
+import '../core/host_arch.dart';
 import '../core/toolchain.dart';
 import '../core/version.dart';
 import '../run/dxvk.dart';
@@ -42,6 +44,7 @@ class DoctorCommand extends WinBridgeCommand {
     }
 
     output.info('winbridge $packageVersion');
+    output.info(_hostLine(context.config.hostArch));
     output.blank();
 
     output.info('Tool search path');
@@ -108,7 +111,17 @@ class DoctorCommand extends WinBridgeCommand {
 
     output.info('Runtime for `winbridge run`');
     final resolved = runtime.resolve();
-    if (resolved == null) {
+    if (resolved == null && !runtime.managedBuildSupported) {
+      // Not "absent": nothing WinBridge can install here would fix it. Still
+      // optional — building never needs Wine — so it does not fail the command.
+      final arch = context.config.hostArch;
+      output.info('  n/a      wine          unavailable on '
+          '${arch == null ? 'this CPU' : arch.slug}: the managed build '
+          '(${pinnedWineBuild.name}) is x86-64 only (optional)');
+      output.info('                         `run`, `package` and `prefix tricks` '
+          'need Wine; set ${WinBridgeConfig.wineVariable} to a Wine that runs '
+          'x86-64 Windows programs to use your own');
+    } else if (resolved == null) {
       output.info('  absent   wine          ${pinnedWineBuild.name}, installed '
           'automatically on first `winbridge run` (optional)');
       final target = runtime.managedDirectory;
@@ -122,7 +135,10 @@ class DoctorCommand extends WinBridgeCommand {
     // Vulkan is optional: only DXVK needs it, and only for Direct3D apps.
     // Reported as loader-present or not — which graphics hardware is in the
     // machine, and whose driver is in use, is not WinBridge's to guess at.
-    final vulkan = VulkanCheck.detect(context.tools);
+    final vulkan = VulkanCheck.detect(
+      context.tools,
+      arch: context.config.hostArch,
+    );
     if (vulkan.looksAvailable) {
       final found = vulkan.loaderPath ?? vulkan.vulkaninfoPath;
       output.info('  ok       vulkan        $found — `run --dxvk` available');
@@ -150,6 +166,9 @@ class DoctorCommand extends WinBridgeCommand {
       runner: context.processes,
       output: context.output,
     );
+    if (installer.unavailableReason(component) case final reason?) {
+      throw reason;
+    }
     if (installer.isComplete(component)) {
       context.output.info('${component.id} is already installed.');
       return 0;
@@ -169,23 +188,39 @@ class DoctorCommand extends WinBridgeCommand {
       output: output,
     );
 
+    final arch = context.config.hostArch;
     output.info('Installable components  (winbridge doctor --install <name>)');
     for (final component in installableComponents) {
       // "system" matters: a tool already on the search path works fine, it is
       // simply not one WinBridge downloaded and can vouch for.
-      final state = installer.isComplete(component)
-          ? 'managed'
-          : installer.isInstalled(component)
-              ? 'partial'
-              : component.probeBinary != null &&
-                      context.tools.resolve(component.probeBinary!) != null
-                  ? 'system '
-                  : 'absent ';
+      final unavailable = installer.unavailableReason(component) != null;
+      final note = !unavailable
+          ? ''
+          : component.assetFor(arch) == null
+              ? ' (no download for this CPU)'
+              : ' (needs Wine, unavailable on this host)';
+      final state = unavailable
+          ? 'n/a    '
+          : installer.isComplete(component)
+              ? 'managed'
+              : installer.isInstalled(component)
+                  ? 'partial'
+                  : component.probeBinary != null &&
+                          context.tools.resolve(component.probeBinary!) != null
+                      ? 'system '
+                      : 'absent ';
       output.info('  $state  ${component.id.padRight(6)} '
-          '${component.downloadSize.padRight(14)} ${component.summary}');
+          '${component.downloadSizeFor(arch).padRight(14)} '
+          '${component.summary}$note');
     }
     output.blank();
   }
+
+  /// `Host: arm64 (aarch64)` — the CPU the downloads and the Wine decision are
+  /// made for, so a report from an arm64 machine says so at the top.
+  static String _hostLine(HostArch? arch) => arch == null
+      ? 'Host: unsupported CPU (managed downloads are x86-64 and arm64 only)'
+      : 'Host: linux ${arch.slug} (${arch.machine})';
 
   String _label(ToolRequirement requirement) =>
       requirement.candidates.join(' | ').padRight(12);

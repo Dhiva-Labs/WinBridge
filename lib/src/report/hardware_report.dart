@@ -65,6 +65,8 @@ class WineStatus {
     this.binaryPath,
     this.sourceLabel,
     this.verified = false,
+    this.unavailableOnHost = false,
+    this.hostArch,
   });
 
   /// The version WinBridge is pinned to, regardless of whether it is
@@ -87,6 +89,16 @@ class WineStatus {
   /// only for the managed runtime; see `WineSource` for why the other two
   /// paths are trusted on the user's say-so instead.
   final bool verified;
+
+  /// True when this machine's CPU cannot run the pinned Wine at all (it is an
+  /// x86-64 build), so there is nothing to install and `winbridge run` stops
+  /// with an explanation. Distinct from "not installed yet", which a first run
+  /// fixes by itself.
+  final bool unavailableOnHost;
+
+  /// The host architecture's name (`arm64`), or null when it is neither x64
+  /// nor arm64. Only meaningful alongside [unavailableOnHost].
+  final String? hostArch;
 }
 
 /// One app prefix and whatever DXVK state it carries.

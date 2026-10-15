@@ -137,7 +137,10 @@ class RunCommand extends WinBridgeCommand {
       return false;
     }
 
-    final vulkan = VulkanCheck.detect(context.tools);
+    final vulkan = VulkanCheck.detect(
+      context.tools,
+      arch: context.config.hostArch,
+    );
     if (!vulkan.looksAvailable) {
       throw const BuildFailure(
         'no Vulkan loader found, so DXVK cannot run here',

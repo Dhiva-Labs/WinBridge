@@ -50,7 +50,7 @@ class ReportGatherer {
     final kernel = await _kernel();
     final cpu = _cpuModel();
     final gpuScan = await _gpus();
-    final vulkan = VulkanCheck.detect(tools);
+    final vulkan = VulkanCheck.detect(tools, arch: config.hostArch);
 
     return HardwareReport(
       winbridgeVersion: packageVersion,
@@ -80,21 +80,28 @@ class ReportGatherer {
     return line.isEmpty ? null : line;
   }
 
+  /// The first `model name` line of `/proc/cpuinfo`. x86 kernels print one;
+  /// arm64 kernels do not, and name the board or SoC on a `Model` or
+  /// `Hardware` line when they name anything (Raspberry Pi, some Android-class
+  /// SoCs). Those two are only a fallback, so an x86 report is unchanged.
   String? _cpuModel() {
     final file = File(cpuInfoPath);
     if (!file.existsSync()) return null;
     try {
+      String? fallback;
       for (final line in file.readAsLinesSync()) {
-        if (!line.startsWith('model name')) continue;
         final colon = line.indexOf(':');
         if (colon < 0) continue;
+        final key = line.substring(0, colon).trim();
         final value = line.substring(colon + 1).trim();
-        return value.isEmpty ? null : value;
+        if (value.isEmpty) continue;
+        if (key == 'model name') return value;
+        if (key == 'Model' || key == 'Hardware') fallback ??= value;
       }
+      return fallback;
     } on FileSystemException {
       return null;
     }
-    return null;
   }
 
   Future<_GpuScan> _gpus() async {
@@ -127,6 +134,8 @@ class ReportGatherer {
       return WineStatus(
         pinnedVersion: pinnedWineBuild.version,
         resolved: false,
+        unavailableOnHost: !runtime.managedBuildSupported,
+        hostArch: config.hostArch?.slug,
       );
     }
     return WineStatus(
