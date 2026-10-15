@@ -10,11 +10,17 @@ than implying more automation exists than does.
 
 | Channel | What it is | Built by | Status |
 | --- | --- | --- | --- |
-| GitHub release tarball | `winbridge-<ver>-linux-x64.tar.gz` — the binary plus `LICENSE`/`README.md` | `.github/workflows/release.yml`, on every `vX.Y.Z` tag push | Automated |
-| GitHub release `.deb` | `winbridge_<ver>-1_amd64.deb` — installs to `/usr/bin/winbridge` | Same workflow, same tag push | Automated |
+| GitHub release tarball | `winbridge-<ver>-linux-x64.tar.gz` and `winbridge-<ver>-linux-arm64.tar.gz` — the binary plus `LICENSE`/`README.md` | `.github/workflows/release.yml`, on every `vX.Y.Z` tag push; each architecture is built on a machine of its own CPU | Automated (arm64 files exist from the first release after v0.4.0) |
+| GitHub release `.deb` | `winbridge_<ver>-1_amd64.deb` and `winbridge_<ver>-1_arm64.deb` — install to `/usr/bin/winbridge` | Same workflow, same tag push | Automated (arm64 as above) |
 | `dhiva-apps` PPA | Ubuntu Noble source package, built by Launchpad's own build farm from what `dput` uploads | `debian/` + `scripts/release/build-ppa-source.sh`, run by hand | Source package builds and installs correctly locally (see below); **upload is a manual, deliberate step — nothing in this repository ever runs `dput`** |
 | Flatpak | `io.github.dhiva_labs.WinBridge`, from `packaging/flatpak/` | `flatpak-builder`, run by hand (or future CI) | **Manifest only — untested on this machine, no `flatpak-builder` installed here.** See `packaging/flatpak/README.md` |
-| Snap | `winbridge`, classic confinement, from `snap/snapcraft.yaml` | `snapcraft pack --use-lxd`, run by hand | Built and tested locally; **not yet registered or uploaded**, and classic needs a Snap Store forum approval first. See `packaging/SNAP.md` |
+| Snap | `winbridge`, classic confinement, from `snap/snapcraft.yaml` (amd64 and arm64) | `snapcraft pack --use-lxd`, run by hand; CI builds both architectures on every pull request as workflow artifacts only | Built and tested locally and in CI; **not yet registered or uploaded**, and classic needs a Snap Store forum approval first. See `packaging/SNAP.md` |
+
+The PPA and the Flatpak manifest are x86-64 only: the PPA package declares
+`Architecture: amd64` (its vendored binary is compiled by hand on an x86-64
+machine), and the Flatpak manifest pins the x64 tarball by checksum. An arm64
+machine installs the arm64 `.deb` or tarball from the GitHub release, or builds
+the snap. Making the PPA and Flatpak multi-architecture is separate work.
 
 `winbridge doctor`/`winbridge report` and everything else the CLI does are
 identical regardless of which channel installed it; nothing about the binary
@@ -23,7 +29,10 @@ itself differs between channels, only how it arrived.
 ## GitHub release: tarball and `.deb`
 
 Both come from one workflow, `.github/workflows/release.yml`, triggered only
-by pushing a tag matching `v*` (e.g. `v0.4.0`). In order:
+by pushing a tag matching `v*` (e.g. `v0.4.0`). There are two jobs. `build`
+runs once per architecture — x64 on `ubuntu-latest`, arm64 on
+`ubuntu-24.04-arm`, a real arm64 machine — and `publish` runs only after both
+have passed. Each `build` job, in order:
 
 1. **The tag must match `pubspec.yaml`'s version, or the workflow fails
    immediately** with a message naming both values — before `dart pub get`,
@@ -31,19 +40,31 @@ by pushing a tag matching `v*` (e.g. `v0.4.0`). In order:
    `--version` output disagrees with the git tag that produced it, and the
    cheapest place to catch that is before spending any CI time on it.
 2. `dart analyze --fatal-infos` and `dart test` — a failing suite means no
-   release. There is no step after this that can undo a bad build once
+   release. There is no step after this one that can undo a bad build once
    assets are uploaded, so nothing after it runs unless both pass.
 3. `dart compile exe`, and a second check that the freshly compiled
    binary's own `--version` output agrees with the tag (belt and braces:
    the first check caught a human forgetting to bump `pubspec.yaml`, this
    one would catch the compiler somehow producing something else).
-4. The tarball and `.deb` are assembled (see "Mirroring the release `.deb`
-   structure" below) and `SHA256SUMS` is generated over both.
-5. `gh release create` publishes the tag as a GitHub release with all three
+4. `scripts/release/package-linux.sh` assembles that architecture's tarball
+   and `.deb`. It takes
+   the architecture from `dpkg --print-architecture` and refuses to package a
+   binary that `file` says is for a different CPU. `ci.yml` runs the same
+   script on both architectures for every pull request, then installs the
+   `.deb` and unpacks the tarball and runs the result, so the packaging that
+   ships is the packaging that was tested.
+
+Then `publish`:
+
+5. `scripts/release/checksums.sh` writes one `SHA256SUMS` over all four files
+   (x64 and arm64, tarball and `.deb`) and **fails if any is missing**, so a
+   release cannot go out carrying one architecture only. `ci.yml` runs the same
+   script over the pull request's packages.
+6. `gh release create` publishes the tag as a GitHub release with all five
    files attached. `gh` ships preinstalled on GitHub-hosted runners, so this
-   needs no extra pinned action for the release step itself — only
-   `actions/checkout` and `dart-lang/setup-dart` are pinned actions, and
-   both are pinned to the exact same commit SHAs `ci.yml` already uses.
+   needs no extra pinned action for the release step itself — the actions used
+   (`checkout`, `setup-dart`, `upload-artifact`, `download-artifact`) are
+   pinned to commit SHAs.
 
 `permissions: contents: write` is granted at the job level, not the
 workflow level — the same reasoning `ci.yml`'s comment gives for staying

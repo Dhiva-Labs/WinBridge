@@ -1,5 +1,9 @@
 # WinBridge
 
+[![ARM64 builds](https://github.com/Dhiva-Labs/WinBridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/WinBridge/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Dhiva-Labs/WinBridge)](https://github.com/Dhiva-Labs/WinBridge/releases/latest)
+![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
+
 WinBridge builds Windows binaries from Linux, without leaving Linux.
 
 It detects a project (Go, Rust, .NET, C/C++, Flutter), picks the cheapest
@@ -15,30 +19,78 @@ to install, nothing to configure. See `docs/running.md`.
 
 ## Install
 
-From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases) —
-on Debian/Ubuntu:
+From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases).
+Each release carries a tarball and a `.deb` for **x64 (amd64)** and for
+**arm64 (aarch64)** — pick the one that matches `uname -m` (`x86_64` or
+`aarch64`) — and a `SHA256SUMS` covering all of them. Releases up to v0.4.0 are
+x64 only; arm64 files are published from the release after that.
+
+On Debian/Ubuntu:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge_0.4.0-1_amd64.deb
-sudo apt install ./winbridge_0.4.0-1_amd64.deb
+VERSION=0.4.0
+ARCH="$(dpkg --print-architecture)"   # amd64 or arm64
+curl -LO "https://github.com/Dhiva-Labs/WinBridge/releases/download/v${VERSION}/winbridge_${VERSION}-1_${ARCH}.deb"
+sudo apt install "./winbridge_${VERSION}-1_${ARCH}.deb"
 winbridge doctor
 ```
 
-or on any Linux x86-64, no root needed:
+or on any Linux x86-64 or arm64, no root needed:
 
 ```sh
-curl -LO https://github.com/Dhiva-Labs/WinBridge/releases/download/v0.4.0/winbridge-0.4.0-linux-x64.tar.gz
-tar -xzf winbridge-0.4.0-linux-x64.tar.gz
-install -Dm755 winbridge-0.4.0-linux-x64/winbridge ~/.local/bin/winbridge
+VERSION=0.4.0
+ARCH="$(case "$(uname -m)" in x86_64) echo x64 ;; aarch64) echo arm64 ;; esac)"
+curl -LO "https://github.com/Dhiva-Labs/WinBridge/releases/download/v${VERSION}/winbridge-${VERSION}-linux-${ARCH}.tar.gz"
+tar -xzf "winbridge-${VERSION}-linux-${ARCH}.tar.gz"
+install -Dm755 "winbridge-${VERSION}-linux-${ARCH}/winbridge" ~/.local/bin/winbridge
 winbridge doctor
 ```
 
 Verify the download against the release's `SHA256SUMS` asset with
-`sha256sum -c`.
+`sha256sum -c --ignore-missing SHA256SUMS`.
 
 Every install channel — this tarball and `.deb`, the `dhiva-apps` PPA, and
 Flatpak — is covered in full, including how each one is built and its
 current status, in `docs/distribution.md`.
+
+## ARM64 hosts
+
+WinBridge itself runs natively on Linux arm64. Its CI builds, tests and
+packages it on real arm64 machines (no emulation) next to x64, so the
+`winbridge-<version>-linux-arm64.tar.gz` and `winbridge_<version>-1_arm64.deb`
+release files are the same program, compiled for that CPU.
+
+**What works on an arm64 host**
+
+- `winbridge build` for Go, Rust (`x86_64-pc-windows-gnu`), .NET (`win-x64`)
+  and C/C++ (`zig cc`, or MinGW-w64). It produces the same Windows x86-64
+  binaries an x64 host does, and every one is still checked for a real PE32+
+  header. The host CPU only decides which compiler runs.
+- `winbridge doctor --install go|zig|msvc` downloads the **arm64** build of
+  Go, Zig or xwin, verified against a pinned SHA-256, never the x64 one.
+  (Rust and .NET come from your own install, as on x64; on Debian/Ubuntu arm64
+  the MinGW linker Rust needs is the `gcc-mingw-w64-x86-64` package.)
+- `detect`, `doctor`, `report`, `recipe list|show` and the Flutter
+  build VM commands (`winbridge vm ...`), which drive a Windows VM over SSH and
+  do not care what CPU the host has.
+
+**What does not work on an arm64 host**
+
+- `winbridge run`, `winbridge prefix tricks`, `--dxvk`, `winbridge package`
+  (it runs NSIS under Wine) and `winbridge recipe apply` for a recipe that has
+  something to apply. They all need Wine, and the Wine WinBridge manages is an
+  x86-64 build. No arm64 Wine that runs x86-64 Windows programs is available
+  in a form WinBridge can pin by checksum and unpack without root, so on arm64
+  these commands stop immediately with an explanation. They download nothing
+  and create no prefix, and `winbridge doctor` reports the same thing.
+- A `wine` found on `PATH` is not used automatically on arm64: a Wine built
+  natively for arm64 cannot run the x86-64 programs WinBridge builds. If you
+  have one that does (a Hangover build, for example), set
+  `WINBRIDGE_WINE=/path/to/wine` and WinBridge uses it as given. That route is
+  yours to verify; WinBridge does not test it.
+- The bundled `scripts/vm/docker-compose.yml` (a local Windows VM under KVM) is
+  written for x86-64 hosts and has not been tried on arm64. Point
+  `~/.config/winbridge/vm.json` at any Windows VM you can reach over SSH.
 
 ## Quick start from source
 
@@ -170,7 +222,9 @@ dart test
 
 Integration tests that need a real toolchain (Go, Zig, a live build VM, ...)
 skip gracefully when that toolchain is not present locally; CI runs the full
-matrix.
+matrix, on an x64 and an arm64 machine. The architecture-dependent behaviour
+(which download is chosen, whether Wine is on offer) takes the host CPU as an
+input, so the arm64 paths are also tested on x64 and the other way round.
 
 ## Reporting hardware and compatibility
 

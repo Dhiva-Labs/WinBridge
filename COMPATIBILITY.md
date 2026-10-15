@@ -26,6 +26,15 @@ WinBridge's authors tested it on a variety of hardware.** Everything else
 in a future version of this table will carry a reporter's name or handle
 instead, and mean exactly and only what that person reported.
 
+## Hosts
+
+Every row below was verified on an **x86-64 Linux host**. On a **Linux arm64
+host** WinBridge builds Windows binaries (CI builds the fixtures there, with
+the arm64 Go and Zig toolchains WinBridge downloads) but cannot run them: the
+managed Wine is x86-64 only, so `winbridge run`, `--dxvk`, `prefix tricks` and
+`package` are unavailable there and say so. A row therefore means "works on
+x86-64 Linux" unless it says otherwise. See "ARM64 hosts" in `README.md`.
+
 ## Table
 
 | App | Works via | Recipe/notes | Reported by |

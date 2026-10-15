@@ -46,7 +46,9 @@ the same engine `winbridge run` installs. There is a Linux-native NSIS in most
 distributions, but using it would mean depending on whatever version a
 distribution ships, and on it being installed at all. One pinned NSIS behaves
 the same everywhere, and it costs nothing extra because the Wine runtime is
-already there for `run`.
+already there for `run`. That also means `package` is unavailable on a Linux
+arm64 host, where WinBridge has no Wine to run NSIS under (see `running.md`):
+build on arm64, package on x86-64.
 
 The generated script uses **bare file names, never absolute paths**. NSIS uses
 `/` to introduce options, so an absolute Unix path handed to `makensis` parses
