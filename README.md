@@ -23,12 +23,12 @@ From the [releases page](https://github.com/Dhiva-Labs/WinBridge/releases).
 Each release carries a tarball and a `.deb` for **x64 (amd64)** and for
 **arm64 (aarch64)** — pick the one that matches `uname -m` (`x86_64` or
 `aarch64`) — and a `SHA256SUMS` covering all of them. Releases up to v0.4.0 are
-x64 only; arm64 files are published from the release after that.
+x64 only; arm64 files are published from v0.5.0 on.
 
 On Debian/Ubuntu:
 
 ```sh
-VERSION=0.4.0
+VERSION=0.5.0
 ARCH="$(dpkg --print-architecture)"   # amd64 or arm64
 curl -LO "https://github.com/Dhiva-Labs/WinBridge/releases/download/v${VERSION}/winbridge_${VERSION}-1_${ARCH}.deb"
 sudo apt install "./winbridge_${VERSION}-1_${ARCH}.deb"
@@ -38,7 +38,7 @@ winbridge doctor
 or on any Linux x86-64 or arm64, no root needed:
 
 ```sh
-VERSION=0.4.0
+VERSION=0.5.0
 ARCH="$(case "$(uname -m)" in x86_64) echo x64 ;; aarch64) echo arm64 ;; esac)"
 curl -LO "https://github.com/Dhiva-Labs/WinBridge/releases/download/v${VERSION}/winbridge-${VERSION}-linux-${ARCH}.tar.gz"
 tar -xzf "winbridge-${VERSION}-linux-${ARCH}.tar.gz"
