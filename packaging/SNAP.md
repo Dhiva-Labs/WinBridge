@@ -12,7 +12,7 @@ Publishing needs three things, in this order, and the order matters (see
 1. `snapcraft register winbridge` (once).
 2. A classic-confinement request on the Snap Store forum, **approved**
    (draft below). Classic is never granted automatically.
-3. `snapcraft upload --release=stable winbridge_0.4.0_amd64.snap`.
+3. `snapcraft upload --release=stable winbridge_0.5.0_amd64.snap`.
 
 ## Confinement: classic, and why
 
@@ -125,8 +125,8 @@ the dashboard). So:
 snapcraft pack --use-lxd
 ```
 
-Produces `winbridge_0.4.0_amd64.snap` in the repository root (or
-`winbridge_0.4.0_arm64.snap` when run on an arm64 machine). It is
+Produces `winbridge_0.5.0_amd64.snap` in the repository root (or
+`winbridge_0.5.0_arm64.snap` when run on an arm64 machine). It is
 git-ignored (`*.snap`); never commit it.
 
 `snap/snapcraft.yaml` lists both architectures under `architectures:`, built
@@ -180,7 +180,7 @@ and the snap disagree), build, test, upload.
 ## Testing a build
 
 ```bash
-sudo snap install --dangerous --classic ./winbridge_0.4.0_amd64.snap
+sudo snap install --dangerous --classic ./winbridge_0.5.0_amd64.snap
 winbridge --version
 winbridge doctor
 ```

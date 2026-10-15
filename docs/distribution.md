@@ -10,7 +10,7 @@ than implying more automation exists than does.
 
 | Channel | What it is | Built by | Status |
 | --- | --- | --- | --- |
-| GitHub release tarball | `winbridge-<ver>-linux-x64.tar.gz` and `winbridge-<ver>-linux-arm64.tar.gz` — the binary plus `LICENSE`/`README.md` | `.github/workflows/release.yml`, on every `vX.Y.Z` tag push; each architecture is built on a machine of its own CPU | Automated (arm64 files exist from the first release after v0.4.0) |
+| GitHub release tarball | `winbridge-<ver>-linux-x64.tar.gz` and `winbridge-<ver>-linux-arm64.tar.gz` — the binary plus `LICENSE`/`README.md` | `.github/workflows/release.yml`, on every `vX.Y.Z` tag push; each architecture is built on a machine of its own CPU | Automated (arm64 files exist from v0.5.0 on) |
 | GitHub release `.deb` | `winbridge_<ver>-1_amd64.deb` and `winbridge_<ver>-1_arm64.deb` — install to `/usr/bin/winbridge` | Same workflow, same tag push | Automated (arm64 as above) |
 | `dhiva-apps` PPA | Ubuntu Noble source package, built by Launchpad's own build farm from what `dput` uploads | `debian/` + `scripts/release/build-ppa-source.sh`, run by hand | Source package builds and installs correctly locally (see below); **upload is a manual, deliberate step — nothing in this repository ever runs `dput`** |
 | Flatpak | `io.github.dhiva_labs.WinBridge`, from `packaging/flatpak/` | `flatpak-builder`, run by hand (or future CI) | **Manifest only — untested on this machine, no `flatpak-builder` installed here.** See `packaging/flatpak/README.md` |
