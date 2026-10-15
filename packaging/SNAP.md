@@ -125,8 +125,19 @@ the dashboard). So:
 snapcraft pack --use-lxd
 ```
 
-Produces `winbridge_0.4.0_amd64.snap` in the repository root. It is
+Produces `winbridge_0.4.0_amd64.snap` in the repository root (or
+`winbridge_0.4.0_arm64.snap` when run on an arm64 machine). It is
 git-ignored (`*.snap`); never commit it.
+
+`snap/snapcraft.yaml` lists both architectures under `architectures:`, built
+natively (`build-on` and `build-for` the same CPU). There is no cross-build:
+an arm64 snap is built on an arm64 machine, and `override-build` picks the
+Dart SDK pin for the architecture it finds itself running on
+(`dpkg --print-architecture`). CI builds both snaps on every pull request
+(`ubuntu-24.04` and `ubuntu-24.04-arm`), installs each one (classic,
+`--dangerous`) on its own CPU, checks that `bin/winbridge` inside is an ELF for
+that CPU and that `winbridge --version` runs, and keeps the files as workflow
+artifacts for a week. **CI never uploads to the Snap Store.**
 
 What the build does (`snap/snapcraft.yaml`, part `winbridge`):
 
@@ -158,8 +169,9 @@ What the build does (`snap/snapcraft.yaml`, part `winbridge`):
   about it; the answer is the patchelf result above.
 
 The pinned Dart version lives in `override-build`
-(`DART_VERSION`/`DART_SHA256`). To bump it, take the checksum from
-`https://storage.googleapis.com/dart-archive/channels/stable/release/<ver>/sdk/dartsdk-linux-x64-release.zip.sha256sum`.
+(`DART_VERSION`, and one `DART_SHA256` per architecture). To bump it, take each
+checksum from
+`https://storage.googleapis.com/dart-archive/channels/stable/release/<ver>/sdk/dartsdk-linux-<x64|arm64>-release.zip.sha256sum`.
 
 For every release: bump `version:` in `snap/snapcraft.yaml` together with
 `pubspec.yaml` and `lib/src/core/version.dart` (the build fails if the binary
@@ -201,6 +213,9 @@ hardware, the Flutter VM path (needs a Windows VM), and non-Ubuntu hosts.
   ``could not find `curl` (downloads ...)``, naming the tool. Ubuntu desktop
   does not always ship `curl`.
 * The classic linter warning is suppressed on purpose (see Building).
-* x86-64 only, like the release tarball and `.deb`.
+* The arm64 snap is built and smoke-tested in CI only (install, `--version`,
+  and the ELF check). The long manual test table above was run on x86-64; on
+  arm64 `winbridge run` is unavailable for the reason given in `README.md`
+  ("ARM64 hosts"), so those rows do not apply there.
 * Classic snaps cannot be installed from the store without `--classic`
   (`sudo snap install winbridge --classic`); that is standard for classic.

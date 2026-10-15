@@ -25,6 +25,7 @@ winbridge run myapp/build/winbridge/windows-x64/myapp.exe
 2. **The runtime is resolved**, in this order: `WINBRIDGE_WINE` if you set it,
    then the managed runtime, then any `wine` on your `PATH`. If none of those
    exist, the pinned build is downloaded — one line telling you what and where.
+   (On an arm64 host only `WINBRIDGE_WINE` applies; see the limitations below.)
 3. **The app's prefix is selected** — its own private C: drive.
 4. **The app runs** from its own directory, with its output streamed straight
    through. `winbridge run` exits with the app's exit code, so it composes with
@@ -166,8 +167,21 @@ choosing them means.
 
 ## Honest limitations
 
-Launching apps in isolated prefixes, DXVK and winetricks all work today.
-What to know, and what is still missing:
+Launching apps in isolated prefixes, DXVK and winetricks all work today on
+x86-64 Linux. What to know, and what is still missing:
+
+- **Linux arm64 hosts cannot use any of this.** The pinned Wine is an x86-64
+  build, and there is no arm64 build that runs x86-64 Windows programs which
+  WinBridge could pin by checksum and install without root. On an arm64 host
+  `run`, `prefix tricks`, `--dxvk`, `package` and `recipe apply` stop at once
+  with a message saying so, download nothing and create no prefix; `winbridge
+  doctor` reports the Wine runtime as unavailable. A `wine` on `PATH` is not
+  used automatically there, because a Wine built natively for arm64 cannot run
+  what `winbridge build` produces. If you have a Wine that does run x86-64
+  Windows programs on arm64 (a Hangover build, for example), set
+  `WINBRIDGE_WINE` to it and WinBridge uses it as given — unverified, and not
+  something WinBridge tests. Building Windows binaries works the same on arm64
+  as on x64.
 
 - **DXVK is installed but its rendering is not verified by us.** The install,
   the DLL placement and the overrides are covered by tests that run against a

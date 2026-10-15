@@ -101,7 +101,8 @@ class RecipeApplier {
     required this.runner,
     required this.output,
     VulkanCheck Function(ToolResolver)? vulkanCheck,
-  }) : _vulkanCheck = vulkanCheck ?? VulkanCheck.detect;
+  }) : _vulkanCheck = vulkanCheck ??
+            ((resolver) => VulkanCheck.detect(resolver, arch: config.hostArch));
 
   final WinBridgeConfig config;
   final ToolResolver tools;

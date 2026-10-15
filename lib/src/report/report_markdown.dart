@@ -107,8 +107,13 @@ List<String> _notesLines(HardwareReport report) {
   lines.add(report.wine.resolved
       ? 'wine: ${report.wine.pinnedVersion} pinned, resolved via '
           '${report.wine.sourceLabel} at ${report.wine.binaryPath}'
-      : 'wine: ${report.wine.pinnedVersion} pinned, not installed yet '
-          '(installs automatically on first `winbridge run`)');
+      : report.wine.unavailableOnHost
+          ? 'wine: ${report.wine.pinnedVersion} pinned, but that build is '
+              'x86-64 only and this host is '
+              '${report.wine.hostArch ?? 'neither x64 nor arm64'}, so '
+              '`winbridge run` is unavailable here (builds are not affected)'
+          : 'wine: ${report.wine.pinnedVersion} pinned, not installed yet '
+              '(installs automatically on first `winbridge run`)');
 
   if (report.cpuModel != null) {
     lines.add('cpu: ${report.cpuModel}');

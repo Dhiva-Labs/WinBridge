@@ -16,3 +16,4 @@ fixtures/**/.zig-cache/
 .winbridge/
 *.log
 *.snap
+dist/

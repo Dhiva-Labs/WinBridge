@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # This workflow only reads the repository. `pull_request` (never
 # `pull_request_target`) means a fork's code runs without access to secrets;
@@ -13,17 +14,57 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # An explicit shell turns on `pipefail`, so `winbridge ... | tee log`
+    # fails the step when winbridge does, not only when tee does.
+    shell: bash
+
 jobs:
+  # The whole suite, then the shipped binary, on both architectures. The arm64
+  # leg runs on a real arm64 machine (no emulation), so "passes on arm64" means
+  # the compiler downloads, the cross-toolchains, the PE checks and the
+  # packaging all work on that CPU, not that x64 code was pointed at it.
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            zig_arch: x86_64
+            zig_sha256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+            elf: "x86-64"
+            go_arch: amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            zig_arch: aarch64
+            zig_sha256: "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17"
+            elf: "ARM aarch64"
+            go_arch: arm64
     env:
       ZIG_VERSION: "0.16.0"
-      ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+      ZIG_ARCH: ${{ matrix.zig_arch }}
+      ZIG_SHA256: ${{ matrix.zig_sha256 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+
+      - name: This runner is the architecture the leg claims
+        env:
+          EXPECTED: ${{ matrix.arch }}
+        run: |
+          deb_arch="$(dpkg --print-architecture)"
+          echo "uname -m: $(uname -m), dpkg: ${deb_arch}"
+          case "$EXPECTED" in
+            x64)   test "$deb_arch" = amd64 ;;
+            arm64) test "$deb_arch" = arm64 ;;
+          esac
+          dart --version
 
       - name: Install dependencies
         run: dart pub get
@@ -32,10 +73,13 @@ jobs:
         run: dart analyze --fatal-infos
 
       # --- Cross-toolchains for the M1 native adapters + Rust's mingw linker.
-      - name: Install MinGW-w64 (C/C++ adapter, and Rust's windows-gnu linker)
+      # clang, lld and rsync are for the msvc and vm adapters, so `winbridge
+      # doctor` below can require every toolchain to be ready on this CPU
+      # rather than tolerate a missing one.
+      - name: Install MinGW-w64 (C/C++ adapter, and Rust's windows-gnu linker), clang, lld and rsync
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64
+          sudo apt-get install -y gcc-mingw-w64-x86-64 clang lld rsync
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -45,7 +89,7 @@ jobs:
       - name: Install Zig
         run: |
           curl -fsSL -o zig.tar.xz \
-            "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz"
           echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum --check
           mkdir -p "$HOME/.local/zig"
           tar -xJf zig.tar.xz -C "$HOME/.local/zig" --strip-components=1
@@ -65,3 +109,207 @@ jobs:
       # against fakes (see test/vm/), so it needs nothing installed here.
       - name: Test
         run: dart test
+
+      # --- The shipped binary, on this CPU -----------------------------------
+      - name: Compile
+        run: dart compile exe bin/winbridge.dart -o winbridge
+
+      - name: The compiled binary is for this CPU and runs
+        env:
+          ELF: ${{ matrix.elf }}
+        run: |
+          file -b winbridge
+          file -b winbridge | grep -F "$ELF"
+          ./winbridge --version
+
+      # Every toolchain's tools are installed above, so a required tool that is
+      # missing on this architecture fails the job here.
+      - name: Doctor sees every toolchain ready, and names this host
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          ./winbridge doctor | tee doctor.txt
+          grep -F "Host: linux ${ARCH} " doctor.txt
+
+      # Go and zig are downloaded by WinBridge itself, from the pin for this
+      # CPU, checksum-verified, into a cache that holds nothing else. Then the
+      # host-arch binaries are checked, and fixtures are built using only those
+      # copies (managed toolchains outrank PATH).
+      - name: Bootstrap Go and Zig through winbridge, then build with them
+        env:
+          ELF: ${{ matrix.elf }}
+          GO_ARCH: ${{ matrix.go_arch }}
+        run: |
+          export XDG_CACHE_HOME="$RUNNER_TEMP/wb-cache"
+          export XDG_DATA_HOME="$RUNNER_TEMP/wb-data"
+          ./winbridge doctor --install go
+          ./winbridge doctor --install zig
+          tc="$XDG_CACHE_HOME/winbridge/toolchains"
+
+          file -b "$tc/go/bin/go"
+          file -b "$tc/go/bin/go" | grep -F "$ELF"
+          file -b "$tc/zig/zig"
+          file -b "$tc/zig/zig" | grep -F "$ELF"
+          "$tc/go/bin/go" version | grep -F "linux/${GO_ARCH}"
+          "$tc/zig/zig" version
+
+          ./winbridge doctor | tee bootstrapped.txt
+          grep -E "^  managed  go " bootstrapped.txt
+          grep -E "^  managed  zig " bootstrapped.txt
+
+          ./winbridge --verbose build fixtures/hello_go --output "$RUNNER_TEMP/out-go" 2>&1 | tee build-go.txt
+          grep -F "$tc/go/bin/go" build-go.txt
+          ./winbridge --verbose build fixtures/hello_c --output "$RUNNER_TEMP/out-c" 2>&1 | tee build-c.txt
+          grep -F "$tc/zig/bin/zig" build-c.txt
+
+          for exe in "$RUNNER_TEMP"/out-go/*.exe "$RUNNER_TEMP"/out-c/*.exe; do
+            file -b "$exe"
+            file -b "$exe" | grep -F "PE32+ executable"
+            file -b "$exe" | grep -F "x86-64"
+          done
+
+      # The honest edge of arm64 support, checked on a real arm64 machine: the
+      # pinned Wine is x86-64 only, so `run` must stop at once with an
+      # explanation, download nothing and leave no prefix behind.
+      - name: arm64 hosts stop honestly where Wine is needed
+        if: matrix.arch == 'arm64'
+        run: |
+          export XDG_CACHE_HOME="$RUNNER_TEMP/wb-cache"
+          export XDG_DATA_HOME="$RUNNER_TEMP/wb-data"
+          exe="$(ls "$RUNNER_TEMP"/out-go/*.exe | head -n 1)"
+
+          set +e
+          ./winbridge run "$exe" > run.txt 2>&1
+          code=$?
+          set -e
+          cat run.txt
+          test "$code" -eq 1
+          grep -F "WinBridge's Wine is x86-64 only" run.txt
+          grep -F "arm64 (aarch64)" run.txt
+          grep -F "Nothing was downloaded" run.txt
+
+          test ! -e "$XDG_CACHE_HOME/winbridge/runtimes"
+          test ! -e "$XDG_DATA_HOME/winbridge/prefixes"
+
+          ./winbridge doctor | grep -F "n/a      wine"
+
+      # x64 keeps its managed Wine on offer; nothing about this should have
+      # moved. (Absent or already present, never "n/a".)
+      - name: x64 hosts still offer Wine
+        if: matrix.arch == 'x64'
+        run: |
+          export XDG_CACHE_HOME="$RUNNER_TEMP/wb-cache-wine"
+          ./winbridge doctor | grep -E "^  (absent|ok) +wine "
+
+      # --- The release packaging, exactly as the tag workflow runs it --------
+      - name: Package the tarball and .deb
+        run: |
+          version="$(grep -m1 '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//')"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          scripts/release/package-linux.sh "$version" ./winbridge dist
+          ls -l dist
+
+      - name: The .deb installs and runs, and the tarball unpacks and runs
+        env:
+          ARCH: ${{ matrix.arch }}
+          ELF: ${{ matrix.elf }}
+        run: |
+          deb_arch="$(dpkg --print-architecture)"
+          deb="dist/winbridge_${VERSION}-1_${deb_arch}.deb"
+          test "$(dpkg-deb --field "$deb" Architecture)" = "$deb_arch"
+          sudo apt-get install -y "./${deb}"
+          test "$(command -v winbridge)" = /usr/bin/winbridge
+          test "$(dpkg-query -W -f='${Architecture}' winbridge)" = "$deb_arch"
+          file -b /usr/bin/winbridge | grep -F "$ELF"
+          winbridge --version | grep -F "$VERSION"
+
+          tarball="dist/winbridge-${VERSION}-linux-${ARCH}.tar.gz"
+          tar -xzf "$tarball" -C "$RUNNER_TEMP"
+          unpacked="$RUNNER_TEMP/winbridge-${VERSION}-linux-${ARCH}"
+          file -b "$unpacked/winbridge" | grep -F "$ELF"
+          "$unpacked/winbridge" --version | grep -F "$VERSION"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-${{ matrix.arch }}-packages
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # What the tag workflow does with the two architectures' packages: one
+  # SHA256SUMS over all four files, and a failure if any is missing.
+  release-assets:
+    name: release assets (x64 + arm64)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: linux-*-packages
+          merge-multiple: true
+          path: dist
+
+      - name: One SHA256SUMS over x64 and arm64
+        run: |
+          version="$(grep -m1 '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//')"
+          ls -l dist
+          scripts/release/checksums.sh "$version" dist
+          test "$(wc -l < dist/SHA256SUMS)" -eq 4
+
+  # The snap, both architectures, as a workflow artifact only. Nothing is
+  # uploaded to the Snap Store from here: the classic-confinement request is
+  # still pending, and an upload now would sit behind it. Each snap is
+  # installed (classic, --dangerous) on a runner of its own CPU and asked for
+  # its version, so a snap that builds but does not start fails.
+  snap:
+    name: snap (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            elf: "x86-64"
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            elf: "ARM aarch64"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1
+        id: build
+
+      - name: The snap holds a binary for this CPU
+        env:
+          SNAP_FILE: ${{ steps.build.outputs.snap }}
+          ARCH: ${{ matrix.arch }}
+          ELF: ${{ matrix.elf }}
+        run: |
+          ls -l "$SNAP_FILE"
+          sudo apt-get install -y squashfs-tools
+          unsquashfs -d "$RUNNER_TEMP/snapfs" "$SNAP_FILE"
+          grep -E "^architectures:" -A1 "$RUNNER_TEMP/snapfs/meta/snap.yaml"
+          grep -F -- "- ${ARCH}" "$RUNNER_TEMP/snapfs/meta/snap.yaml"
+          file -b "$RUNNER_TEMP/snapfs/bin/winbridge"
+          file -b "$RUNNER_TEMP/snapfs/bin/winbridge" | grep -F "$ELF"
+
+      - name: The snap installs (classic) and starts
+        env:
+          SNAP_FILE: ${{ steps.build.outputs.snap }}
+        run: |
+          sudo snap install --dangerous --classic "$SNAP_FILE"
+          winbridge --version
+          winbridge --version | grep -E "^winbridge [0-9]+\.[0-9]+\.[0-9]+"
+          winbridge detect fixtures/hello_go
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: snap-${{ matrix.arch }}
+          path: ${{ steps.build.outputs.snap }}
+          if-no-files-found: error
+          retention-days: 7

@@ -10,6 +10,11 @@ Flutter project just works.
 
 ## Prerequisites
 
+- **An x86-64 host, if you use the bundled compose file.** `winbridge vm` itself
+  only needs `ssh` and `rsync` and works from a Linux arm64 host too; it just
+  needs a Windows VM it can reach. The `dockurr/windows` setup below runs an
+  x86-64 Windows guest under KVM and has not been tried on arm64, so on an arm64
+  host point `vm.json` at a Windows machine you set up another way.
 - **KVM.** Check with `ls -l /dev/kvm` — it should exist and be usable by
   your user (usually via membership in the `kvm` group: `groups | grep kvm`).
   Without KVM the VM will still boot but will be too slow to be useful for a

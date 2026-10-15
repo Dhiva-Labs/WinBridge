@@ -126,16 +126,80 @@ void main() {
       final gatherer = ReportGatherer(
         runner: runner,
         tools: toolsWith(),
-        config: WinBridgeConfig(environment: {'HOME': home}),
+        config: WinBridgeConfig(
+          environment: {'HOME': home},
+          hostArch: HostArch.x64,
+        ),
         cpuInfoPath: missingCpuInfoPath(),
       );
       final report = await gatherer.gather();
       expect(report.wine.resolved, isFalse);
       expect(report.wine.pinnedVersion, isNotEmpty);
+      expect(report.wine.unavailableOnHost, isFalse);
       expect(
         report.toMarkdown(),
         contains('installs automatically on first `winbridge run`'),
       );
+    });
+
+    test('an arm64 host is told Wine is unavailable, not that it will install',
+        () async {
+      final gatherer = ReportGatherer(
+        runner: runner,
+        tools: toolsWith(),
+        config: WinBridgeConfig(
+          environment: {'HOME': home},
+          hostArch: HostArch.arm64,
+        ),
+        cpuInfoPath: missingCpuInfoPath(),
+      );
+      final report = await gatherer.gather();
+      expect(report.wine.resolved, isFalse);
+      expect(report.wine.unavailableOnHost, isTrue);
+      expect(report.wine.hostArch, 'arm64');
+      final markdown = report.toMarkdown();
+      expect(markdown, contains('x86-64 only'));
+      expect(markdown, contains('this host is arm64'));
+      expect(markdown, isNot(contains('installs automatically')));
+    });
+
+    test('an arm64 cpuinfo has no model name, so the board name stands in',
+        () async {
+      writeExecutable(toolDir, 'uname');
+      runner.responses.add(
+        okResult(stdout: 'Linux 6.8.0-1017-raspi aarch64 GNU/Linux\n'),
+      );
+      final cpuinfo = writeFile(
+        p.join(tempDir('cpuinfo'), 'cpuinfo'),
+        'processor\t: 0\nBogoMIPS\t: 108.00\nCPU implementer\t: 0x41\n'
+        '\nHardware\t: BCM2712\nModel\t\t: Raspberry Pi 5 Model B Rev 1.0\n',
+      );
+      final gatherer = ReportGatherer(
+        runner: runner,
+        tools: toolsWith(path: toolDir),
+        config: WinBridgeConfig(
+          environment: {'HOME': home},
+          hostArch: HostArch.arm64,
+        ),
+        cpuInfoPath: cpuinfo,
+      );
+      final report = await gatherer.gather();
+      expect(report.kernel, contains('aarch64'));
+      expect(report.cpuModel, 'BCM2712');
+    });
+
+    test('an x86 model name wins over any board line', () async {
+      final cpuinfo = writeFile(
+        p.join(tempDir('cpuinfo'), 'cpuinfo'),
+        'Hardware\t: Some Board\nmodel name\t: Acme CPU X1\n',
+      );
+      final gatherer = ReportGatherer(
+        runner: runner,
+        tools: toolsWith(),
+        config: WinBridgeConfig(environment: {'HOME': home}),
+        cpuInfoPath: cpuinfo,
+      );
+      expect((await gatherer.gather()).cpuModel, 'Acme CPU X1');
     });
 
     test('prefixes report their DXVK state without claiming rendering works', () async {
