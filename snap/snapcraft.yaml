@@ -1,6 +1,6 @@
 name: winbridge
 title: WinBridge
-version: '0.4.0'
+version: '0.5.0'
 summary: Build and run Windows apps from Linux, without leaving Linux
 description: |
   WinBridge cross-compiles Windows binaries from Go, Rust, .NET, C/C++ and
