@@ -56,7 +56,7 @@ done)
 libdirs="$(for f in "${elfs[@]}"; do case "$f" in *.so|*.so.*) dirname "$f" ;; esac; done | sort -u | paste -sd:)"
 missing=0
 for f in "${elfs[@]}"; do
-  if LD_LIBRARY_PATH="$libdirs" ldd "$f" 2>&1 | grep -q 'not found'; then
+  if LD_LIBRARY_PATH="$libdirs" ldd "$f" 2>&1 | grep 'not found' > /dev/null; then
     echo "missing libraries for $f:"
     LD_LIBRARY_PATH="$libdirs" ldd "$f" | grep 'not found'
     missing=1
@@ -106,7 +106,7 @@ cat "$log"
 if grep -E 'error while loading shared libraries|cannot open shared object|undefined symbol' "$log"; then ok=0; fi
 [ "$ok" = 1 ]
 EOS
-  export HOME=/tmp/smoke-home
+  export HOME=/tmp/smoke-home SMOKE_SECONDS
   mkdir -p "$HOME"
   xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- bash /tmp/smoke.sh "${gui[@]}"
 fi
