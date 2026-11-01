@@ -12,6 +12,9 @@ than implying more automation exists than does.
 | --- | --- | --- | --- |
 | GitHub release tarball | `winbridge-<ver>-linux-x64.tar.gz` and `winbridge-<ver>-linux-arm64.tar.gz` — the binary plus `LICENSE`/`README.md` | `.github/workflows/release.yml`, on every `vX.Y.Z` tag push; each architecture is built on a machine of its own CPU | Automated (arm64 files exist from v0.5.0 on) |
 | GitHub release `.deb` | `winbridge_<ver>-1_amd64.deb` and `winbridge_<ver>-1_arm64.deb` — install to `/usr/bin/winbridge` | Same workflow, same tag push | Automated (arm64 as above) |
+| GitHub release `.rpm` | `winbridge-<ver>-1.x86_64.rpm` and `winbridge-<ver>-1.aarch64.rpm` for Fedora, RHEL/Rocky/Alma and openSUSE — the same files as the `.deb` | `packaging/linux-distros/pack.sh` (nfpm), from each architecture's `.deb`, in `ci.yml` and `release.yml` | Automated from the first tag after 2026-11-01; installed and run on Fedora and openSUSE Tumbleweed in CI on both architectures |
+| GitHub release Arch package | `winbridge-<ver>-1-x86_64.pkg.tar.zst` and `-aarch64.pkg.tar.zst` for Arch, Manjaro and EndeavourOS | Same script, same workflows | Automated as above; installed and run on Arch in CI on x64. Arch Linux ARM has no official container image, so the aarch64 package gets a static check only |
+| AUR recipe | `winbridge-bin-<ver>-aur.tar.gz`: a `PKGBUILD` and `.SRCINFO` for `winbridge-bin`, which repackages the release `.deb`s | `packaging/arch/aur.sh`, in both workflows; proven with `makepkg` on Arch | Attached to releases; **publishing to the AUR is manual** (an AUR account pushes the two files to `aur.archlinux.org/winbridge-bin.git`) |
 | `dhiva-apps` PPA | Ubuntu Noble source package, built by Launchpad's own build farm from what `dput` uploads | `debian/` + `scripts/release/build-ppa-source.sh`, run by hand | Source package builds and installs correctly locally (see below); **upload is a manual, deliberate step — nothing in this repository ever runs `dput`** |
 | Flatpak | `io.github.dhiva_labs.WinBridge`, from `packaging/flatpak/` | `flatpak-builder`, run by hand (or future CI) | **Manifest only — untested on this machine, no `flatpak-builder` installed here.** See `packaging/flatpak/README.md` |
 | Snap | `winbridge`, classic confinement, from `snap/snapcraft.yaml` (amd64 and arm64) | `snapcraft pack --use-lxd`, run by hand; CI builds both architectures on every pull request as workflow artifacts only | Built and tested locally and in CI; **not yet registered or uploaded**, and classic needs a Snap Store forum approval first. See `packaging/SNAP.md` |
@@ -29,10 +32,11 @@ itself differs between channels, only how it arrived.
 ## GitHub release: tarball and `.deb`
 
 Both come from one workflow, `.github/workflows/release.yml`, triggered only
-by pushing a tag matching `v*` (e.g. `v0.4.0`). There are two jobs. `build`
-runs once per architecture — x64 on `ubuntu-latest`, arm64 on
-`ubuntu-24.04-arm`, a real arm64 machine — and `publish` runs only after both
-have passed. Each `build` job, in order:
+by pushing a tag matching `v*` (e.g. `v0.4.0`). `build` runs once per
+architecture — x64 on `ubuntu-latest`, arm64 on `ubuntu-24.04-arm`, a real
+arm64 machine — then `distros` and `aur` turn its `.deb`s into the other
+formats (next section), and `publish` runs only after all of them have
+passed. Each `build` job, in order:
 
 1. **The tag must match `pubspec.yaml`'s version, or the workflow fails
    immediately** with a message naming both values — before `dart pub get`,
@@ -56,12 +60,14 @@ have passed. Each `build` job, in order:
 
 Then `publish`:
 
-5. `scripts/release/checksums.sh` writes one `SHA256SUMS` over all four files
-   (x64 and arm64, tarball and `.deb`) and **fails if any is missing**, so a
-   release cannot go out carrying one architecture only. `ci.yml` runs the same
+5. `scripts/release/checksums.sh` writes one `SHA256SUMS` over all nine files
+   (x64 and arm64: tarball, `.deb`, `.rpm` and Arch package; and the AUR
+   recipe) and **fails if any is missing**, so a release cannot go out
+   carrying one architecture or one format only. `ci.yml` runs the same
    script over the pull request's packages.
-6. `gh release create` publishes the tag as a GitHub release with all five
-   files attached. `gh` ships preinstalled on GitHub-hosted runners, so this
+6. `gh release create` publishes the tag as a GitHub release with all ten
+   files attached (the four above, the `.rpm` and Arch package for each
+   architecture and the AUR recipe, see the next section, and `SHA256SUMS`). `gh` ships preinstalled on GitHub-hosted runners, so this
    needs no extra pinned action for the release step itself — the actions used
    (`checkout`, `setup-dart`, `upload-artifact`, `download-artifact`) are
    pinned to commit SHAs.
@@ -71,6 +77,35 @@ workflow level — the same reasoning `ci.yml`'s comment gives for staying
 read-only applies here in reverse: scoping the grant to the one job that
 needs it means a step added to a different job later does not inherit
 write access by accident.
+
+## GitHub release: `.rpm`, Arch package and AUR recipe
+
+These repackage the `.deb`, they do not rebuild WinBridge: in `ci.yml` (every
+pull request) and in `release.yml` (every tag), the `distros` job unpacks
+each architecture's `.deb` and `packaging/linux-distros/pack.sh` builds an
+`.rpm` and an Arch package from exactly those files with
+[nfpm](https://nfpm.goreleaser.com/), plus `/usr/share/licenses/winbridge/LICENSE`.
+`packaging/linux-distros/verify.sh` then installs each one on the real
+distribution, in containers of the runner's own architecture: Fedora and
+openSUSE Tumbleweed for the `.rpm`, Arch for the package. In each one it runs
+`ldd` on the installed binary (any missing library fails the job) and the
+same smoke test as the snap: `winbridge --version`, `--help` and
+`winbridge detect` on a fixture.
+
+Dependencies match the `.deb`. The only hard one is the C library: the `.rpm`
+gets it from the binary itself (`libc.so.6` with the newest `GLIBC_` symbol
+version it uses, so dnf and zypper refuse a distribution that is too old
+instead of installing a binary that cannot start). The `.deb`'s Recommends
+(openssh-client, rsync, curl, xz-utils) are weak dependencies: rpm
+`Recommends:` on `/usr/bin/ssh`, `/usr/bin/rsync`, `/usr/bin/curl` and
+`/usr/bin/xz` (Fedora and openSUSE call some of those packages differently),
+and Arch `optdepends`. Wine, DXVK, winetricks, Go and Zig are not
+dependencies of any package: WinBridge downloads and verifies them itself.
+
+The `aur` job renders `packaging/arch/PKGBUILD.in` for `winbridge-bin` with
+the release URL and the sha256 of both `.debs`, generates `.SRCINFO`, and
+proves the recipe with `makepkg` and `pacman -U` on `archlinux:latest`.
+`publish` attaches all five files and covers them in `SHA256SUMS`.
 
 ## The PPA (`dhiva-apps`)
 
@@ -249,7 +284,8 @@ specified to use.
    tag on its own). This is what `.github/workflows/release.yml` triggers
    on, and its first real step is checking the tag agrees with
    `pubspec.yaml` — see above.
-3. **The GitHub release** (tarball + `.deb` + `SHA256SUMS`) is fully
+3. **The GitHub release** (tarball, `.deb`, `.rpm`, Arch package, AUR
+   recipe and `SHA256SUMS`) is fully
    automated from that point: the workflow builds and publishes it with no
    further human input.
 4. **The PPA** is not automated past that point. Someone runs
