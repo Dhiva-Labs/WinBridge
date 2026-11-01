@@ -3,6 +3,7 @@
 [![ARM64 builds](https://github.com/Dhiva-Labs/WinBridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/WinBridge/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Dhiva-Labs/WinBridge)](https://github.com/Dhiva-Labs/WinBridge/releases/latest)
 ![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
+![Linux: deb | rpm | Arch | tarball](https://img.shields.io/badge/Linux-deb%20%7C%20rpm%20%7C%20Arch%20%7C%20tarball-informational?logo=linux&logoColor=white)
 
 WinBridge builds Windows binaries from Linux, without leaving Linux.
 
@@ -35,6 +36,35 @@ sudo apt install "./winbridge_${VERSION}-1_${ARCH}.deb"
 winbridge doctor
 ```
 
+On Fedora, RHEL, Rocky or Alma, and on openSUSE (`.rpm`), or on Arch, Manjaro
+or EndeavourOS (`.pkg.tar.zst`). Releases from the next tag on carry these for
+both architectures, built from the same binary as the `.deb`:
+
+```sh
+VERSION=0.5.0
+ARCH="$(uname -m)"   # x86_64 or aarch64
+BASE="https://github.com/Dhiva-Labs/WinBridge/releases/download/v${VERSION}"
+
+# Fedora / RHEL / Rocky / Alma
+curl -LO "$BASE/winbridge-${VERSION}-1.${ARCH}.rpm"
+sudo dnf install "./winbridge-${VERSION}-1.${ARCH}.rpm"
+
+# openSUSE (the .rpm is not signed)
+curl -LO "$BASE/winbridge-${VERSION}-1.${ARCH}.rpm"
+sudo zypper install --allow-unsigned-rpm "./winbridge-${VERSION}-1.${ARCH}.rpm"
+
+# Arch / Manjaro / EndeavourOS
+curl -LO "$BASE/winbridge-${VERSION}-1-${ARCH}.pkg.tar.zst"
+sudo pacman -U "./winbridge-${VERSION}-1-${ARCH}.pkg.tar.zst"
+```
+
+The packages need only the C library; ssh, rsync, curl and xz are optional
+(weak dependencies on rpm, `optdepends` on Arch), as they are Recommends of
+the `.deb`. dnf and zypper refuse a distribution whose glibc is older than the
+binary needs. Each release also carries `winbridge-bin-<version>-aur.tar.gz`,
+the `PKGBUILD` and `.SRCINFO` for an AUR `winbridge-bin` package (not on the
+AUR yet).
+
 or on any Linux x86-64 or arm64, no root needed:
 
 ```sh
@@ -49,8 +79,8 @@ winbridge doctor
 Verify the download against the release's `SHA256SUMS` asset with
 `sha256sum -c --ignore-missing SHA256SUMS`.
 
-Every install channel — this tarball and `.deb`, the `dhiva-apps` PPA, and
-Flatpak — is covered in full, including how each one is built and its
+Every install channel — this tarball, the `.deb`, `.rpm` and Arch package, the
+AUR recipe, the `dhiva-apps` PPA, and Flatpak — is covered in full, including how each one is built and its
 current status, in `docs/distribution.md`.
 
 ## ARM64 hosts

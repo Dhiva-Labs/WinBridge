@@ -98,9 +98,106 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The .rpm and the Arch package for each architecture, from that
+  # architecture's .deb, installed and run on Fedora, openSUSE and Arch
+  # before anything is published. The same scripts ci.yml runs on every
+  # pull request.
+  distros:
+    name: other distros (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            deb_arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            deb_arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      NFPM_VERSION: "2.48.0"
+      DEB_ARCH: ${{ matrix.deb_arch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-${{ matrix.arch }}-packages
+          path: deb
+
+      - name: Install nfpm
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$(uname -m)" in
+            x86_64) nfpm_arch=x86_64 ;;
+            aarch64) nfpm_arch=arm64 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP/bin"
+          tarball="nfpm_${NFPM_VERSION}_Linux_${nfpm_arch}.tar.gz"
+          gh release download "v$NFPM_VERSION" -R goreleaser/nfpm -p "$tarball" -p checksums.txt
+          grep " $tarball\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" nfpm
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Build the .rpm and the Arch package from the .deb
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          dpkg-deb -x "deb/winbridge_${version}-1_${DEB_ARCH}.deb" "$RUNNER_TEMP/root"
+          VERSION="$version" packaging/linux-distros/pack.sh "$RUNNER_TEMP/root" "$DEB_ARCH" dist
+
+      - name: Install and run them on Fedora, openSUSE and Arch
+        run: packaging/linux-distros/verify.sh dist "$DEB_ARCH"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distros-${{ matrix.arch }}
+          path: |
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+
+  # The AUR recipe for this release (winbridge-bin): PKGBUILD and .SRCINFO
+  # pointing at this release's .debs, proven with makepkg on Arch. Attached
+  # to the release; pushing it to the AUR is a separate, manual step.
+  aur:
+    name: AUR PKGBUILD
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: linux-*-packages
+          merge-multiple: true
+          path: deb
+
+      - name: Render and check the PKGBUILD
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          VERSION="$version" packaging/arch/aur.sh \
+            "deb/winbridge_${version}-1_amd64.deb" "deb/winbridge_${version}-1_arm64.deb" dist
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aur
+          path: dist/*-aur.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: publish
-    needs: build
+    needs: [build, distros, aur]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Scoped to this one job, not the workflow: creating a GitHub release and
@@ -121,9 +218,20 @@ jobs:
           merge-multiple: true
           path: dist
 
-      # One SHA256SUMS over the x64 and arm64 tarballs and .debs. The script
-      # fails if any of the four is missing, so a release can never go out
-      # carrying only one architecture.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: distros-*
+          merge-multiple: true
+          path: dist
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: aur
+          path: dist
+
+      # One SHA256SUMS over every file for both architectures. The script
+      # fails if any of the nine is missing, so a release can never go out
+      # carrying only one architecture or one format.
       - name: Checksums
         env:
           TAG: ${{ github.ref_name }}
@@ -144,6 +252,11 @@ jobs:
             "dist/winbridge_${version}-1_amd64.deb" \
             "dist/winbridge-${version}-linux-arm64.tar.gz" \
             "dist/winbridge_${version}-1_arm64.deb" \
+            "dist/winbridge-${version}-1.x86_64.rpm" \
+            "dist/winbridge-${version}-1.aarch64.rpm" \
+            "dist/winbridge-${version}-1-x86_64.pkg.tar.zst" \
+            "dist/winbridge-${version}-1-aarch64.pkg.tar.zst" \
+            "dist/winbridge-bin-${version}-aur.tar.gz" \
             dist/SHA256SUMS \
             --title "WinBridge ${version}" \
             --generate-notes
