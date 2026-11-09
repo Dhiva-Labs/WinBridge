@@ -31,7 +31,9 @@ description: |
 
   Source, documentation and issues: https://github.com/Dhiva-Labs/WinBridge
 license: MIT
-website: https://github.com/Dhiva-Labs/WinBridge
+website:
+  - https://github.com/Dhiva-Labs/WinBridge
+  - https://learn.dhivalabs.com/apps/winbridge/
 source-code: https://github.com/Dhiva-Labs/WinBridge
 issues: https://github.com/Dhiva-Labs/WinBridge/issues
 contact: dhivakar1010@gmail.com
