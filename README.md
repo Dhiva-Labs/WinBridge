@@ -7,6 +7,8 @@
 
 WinBridge builds Windows binaries from Linux, without leaving Linux.
 
+**Documentation:** step-by-step guides at [learn.dhivalabs.com](https://learn.dhivalabs.com/apps/winbridge/): [install](https://learn.dhivalabs.com/apps/winbridge/install) · [beginner guide](https://learn.dhivalabs.com/apps/winbridge/getting-started) · [troubleshooting](https://learn.dhivalabs.com/apps/winbridge/faq). New to the topic? Try the [Networking and SSH](https://learn.dhivalabs.com/tracks/networking/) and [Linux and the terminal](https://learn.dhivalabs.com/tracks/terminal/) learning tracks.
+
 It detects a project (Go, Rust, .NET, C/C++, Flutter), picks the cheapest
 toolchain that can produce a Windows binary for it, and verifies the result
 is a real PE32+ executable before calling the build a success. Native
